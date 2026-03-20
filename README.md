@@ -25,7 +25,7 @@ Open the URL shown (e.g. `http://localhost:5173`). Use the same credentials as t
 
 ## Deploy
 
-**Vercel (recommended):** step-by-step in **[VERCEL.md](./VERCEL.md)** (new GitHub repo + import + env vars).
+**Vercel (recommended):** **[VERCEL.md](./VERCEL.md)** (import + env vars) and **[DEPLOY_CHECKLIST.md](./DEPLOY_CHECKLIST.md)** (copy-paste checklist).
 
 Any static host:
 

@@ -139,7 +139,7 @@ export default function AppointmentsScreen({ onLogout }: Props) {
   const handleCall = (e: React.MouseEvent, item: Appointment) => {
     e.stopPropagation();
     const phone = item.patientPhone?.replace(/\D/g, '') || '';
-    if (phone) window.location.href = `tel:${phone}`;
+    if (phone) window.open(`tel:${phone}`, '_self');
   };
 
   const handleMap = (e: React.MouseEvent, item: Appointment) => {

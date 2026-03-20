@@ -76,8 +76,10 @@ export function AppointmentsProvider({
 
   useEffect(() => {
     if (!uid) {
-      setAppointments([]);
-      setLoading(false);
+      queueMicrotask(() => {
+        setAppointments([]);
+        setLoading(false);
+      });
       return;
     }
 
@@ -186,6 +188,8 @@ export function AppointmentsProvider({
   return <AppointmentsContext.Provider value={value}>{children}</AppointmentsContext.Provider>;
 }
 
+/** Hook for appointment state; colocated with provider for this app. */
+// eslint-disable-next-line react-refresh/only-export-components -- hook + provider pattern
 export function useAppointmentsContext() {
   const ctx = useContext(AppointmentsContext);
   if (!ctx) throw new Error('useAppointmentsContext must be used within AppointmentsProvider');

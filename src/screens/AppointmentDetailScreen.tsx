@@ -239,7 +239,7 @@ export default function AppointmentDetailScreen() {
             disabled={!appointment.patientPhone}
             onClick={() => {
               const phone = appointment.patientPhone?.replace(/\D/g, '') || '';
-              if (phone) window.location.href = `tel:${phone}`;
+              if (phone) window.open(`tel:${phone}`, '_self');
               else window.alert('No phone number available');
             }}
           >

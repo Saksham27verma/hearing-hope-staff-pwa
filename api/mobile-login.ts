@@ -1,54 +1,58 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+export const config = { runtime: 'edge' };
+
+const corsHeaders: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
 
 /**
- * Same-origin login proxy: browser → this app /api/mobile-login → CRM /api/mobile-login.
- * Avoids cross-origin fetch issues (CORS, strict tracking prevention, some extensions).
+ * Same-origin login proxy: browser → /api/mobile-login → CRM /api/mobile-login.
+ * Edge runtime reads the raw POST body and forwards it reliably (no body-parser quirks).
  */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
+export default async function handler(request: Request): Promise<Response> {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  if (req.method !== 'POST') {
-    res.setHeader('Content-Type', 'application/json');
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+  if (request.method !== 'POST') {
+    return json(405, { ok: false, error: 'Method not allowed' });
   }
 
   const crm =
-    process.env.CRM_BACKEND_URL?.trim() ||
-    process.env.VITE_CRM_URL?.trim() ||
-    '';
+    (process.env.CRM_BACKEND_URL || process.env.VITE_CRM_URL || '').trim().replace(/\/$/, '');
 
   if (!crm) {
-    res.setHeader('Content-Type', 'application/json');
-    return res.status(500).json({
+    return json(500, {
       ok: false,
       error:
-        'Server misconfiguration: set CRM_BACKEND_URL (recommended) or VITE_CRM_URL in this Vercel project’s Environment Variables, then redeploy.',
+        'Server misconfiguration: set CRM_BACKEND_URL (recommended) or VITE_CRM_URL in this Vercel project, then redeploy.',
     });
   }
 
-  const url = `${crm.replace(/\/$/, '')}/api/mobile-login`;
-  const rawBody =
-    typeof req.body === 'string' ? req.body : req.body != null ? JSON.stringify(req.body) : '{}';
+  const url = `${crm}/api/mobile-login`;
+  const body = await request.text();
 
   try {
     const upstream = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: rawBody,
+      body: body || '{}',
     });
     const text = await upstream.text();
     const ct = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
-    res.status(upstream.status);
-    res.setHeader('Content-Type', ct);
-    return res.send(text);
+    return new Response(text, {
+      status: upstream.status,
+      headers: { ...corsHeaders, 'Content-Type': ct },
+    });
   } catch {
-    res.setHeader('Content-Type', 'application/json');
-    return res.status(502).json({ ok: false, error: 'Could not reach CRM backend' });
+    return json(502, { ok: false, error: 'Could not reach CRM backend' });
   }
+}
+
+function json(status: number, data: object): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json; charset=utf-8' },
+  });
 }
