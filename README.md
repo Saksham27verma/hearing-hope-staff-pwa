@@ -42,15 +42,15 @@ Set the same **`VITE_*`** environment variables in the host’s dashboard; **red
 
 ## “Failed to fetch” on login
 
-Usually means the browser never got a normal HTTP response from `/api/mobile-login`.
+The app posts to **same-origin** `/api/mobile-login`. That route is **proxied** to your CRM (no cross-origin login from the browser).
 
-| Situation | What to do |
-|-----------|------------|
-| **Local `npm run dev`** | The app calls **`/api/mobile-login`** on the Vite server, which **proxies** to `VITE_CRM_URL`. Set `VITE_CRM_URL` in `.env`, **restart** the dev server, and make sure the CRM is reachable (e.g. `npm run dev` for `hearing-hope-crm` on port 3000 if you use `http://localhost:3000`). |
-| **Deployed PWA (HTTPS)** | `VITE_CRM_URL` must be **`https://...`**. If it is `http://`, the browser blocks the request (**mixed content**) → “Failed to fetch”. Set the variable on your host and **rebuild** the PWA. |
-| **CRM not redeployed** | The login route must send CORS headers for cross-origin browser calls. Deploy the latest `hearing-hope-crm` (includes `/api/mobile-login` CORS). |
+| Where | What to do |
+|--------|------------|
+| **Local `npm run dev`** | Set `VITE_CRM_URL` in `.env`, restart Vite. The dev server proxies `/api/mobile-login` → CRM. |
+| **Vercel** | Set **`CRM_BACKEND_URL`** to your CRM origin (e.g. `https://hearing-hope-crm.vercel.app`) in the PWA project’s env vars, then **redeploy**. Optional fallback: `VITE_CRM_URL` (server reads it if `CRM_BACKEND_URL` is empty). |
+| **`vite preview`** | There is no proxy or serverless — `/api/mobile-login` will not work. Use `npm run dev` locally or test on Vercel. |
 
-After changing `.env`, restart `npm run dev`. After changing host env vars, trigger a new deploy.
+If login returns HTML or 404, confirm **`vercel.json`** excludes `/api/` from the SPA rewrite and that **`api/mobile-login.ts`** is in the repo root.
 
 ---
 
