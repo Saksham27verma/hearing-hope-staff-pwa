@@ -1,0 +1,288 @@
+.container {
+  min-height: 100dvh;
+  background: var(--hh-bg2);
+  display: flex;
+  flex-direction: column;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--hh-card);
+  border-bottom: 1px solid var(--hh-divider);
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--hh-text);
+  cursor: pointer;
+  min-height: 44px;
+  padding-right: 1rem;
+}
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+  padding-bottom: max(2.5rem, env(safe-area-inset-bottom));
+}
+
+.hero {
+  background: var(--hh-card);
+  border-radius: var(--hh-r-lg);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+}
+
+.patientName {
+  font-size: 1.625rem;
+  font-weight: 800;
+  color: var(--hh-text);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin-bottom: 0.75rem;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.callWrap {
+  margin-bottom: 1.5rem;
+  border-radius: var(--hh-r-lg);
+  overflow: hidden;
+  box-shadow: 0 0 16px rgba(79, 70, 229, 0.25);
+}
+
+.callBtn {
+  width: 100%;
+  border: none;
+  background: var(--hh-primary);
+  color: #fff;
+  padding: 1.1rem;
+  min-height: 52px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.callBtn:disabled {
+  background: var(--hh-muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.details {
+  background: var(--hh-card);
+  border-radius: var(--hh-r-lg);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+}
+
+.section {
+  padding: 1rem 0;
+}
+
+.section + .section {
+  border-top: 1px solid var(--hh-divider);
+}
+
+.label {
+  font-size: 0.7rem;
+  color: var(--hh-text2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.value {
+  font-size: 1rem;
+  color: var(--hh-text);
+  line-height: 1.5;
+}
+
+.muted {
+  color: var(--hh-muted);
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dtRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.locBtn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  padding: 0.25rem 0;
+  cursor: pointer;
+  text-align: left;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--hh-primary);
+  width: 100%;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.btnComplete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: var(--hh-r-md);
+  padding: 1rem;
+  min-height: 48px;
+  background: var(--hh-ok);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+}
+
+.btnCancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid var(--hh-border);
+  border-radius: var(--hh-r-md);
+  padding: 1rem;
+  min-height: 48px;
+  background: var(--hh-bg3);
+  color: var(--hh-text);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btnComplete:disabled,
+.btnCancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.feedbackCard {
+  background: var(--hh-card);
+  border-radius: var(--hh-r-lg);
+  padding: 1.25rem;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--hh-card);
+  border-radius: var(--hh-r-xl);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12);
+}
+
+.modalTitle {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--hh-text);
+  margin-bottom: 0.25rem;
+}
+
+.modalSub {
+  font-size: 0.875rem;
+  color: var(--hh-text2);
+  margin-bottom: 1.25rem;
+}
+
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 100px;
+  padding: 1rem;
+  border-radius: var(--hh-r-md);
+  border: 1px solid var(--hh-border);
+  background: var(--hh-bg2);
+  font-size: 1rem;
+  color: var(--hh-text);
+  font-family: inherit;
+  resize: vertical;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.modalCancel {
+  background: none;
+  border: none;
+  padding: 0.75rem 1rem;
+  color: var(--hh-text2);
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.modalSubmit {
+  background: var(--hh-primary);
+  border: none;
+  border-radius: var(--hh-r-md);
+  padding: 0.75rem 1.5rem;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+}

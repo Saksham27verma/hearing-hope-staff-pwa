@@ -1,0 +1,59 @@
+:root {
+  --hh-bg: #ffffff;
+  --hh-bg2: #f8fafc;
+  --hh-bg3: #f1f5f9;
+  --hh-card: #ffffff;
+  --hh-text: #0f172a;
+  --hh-text2: #64748b;
+  --hh-muted: #94a3b8;
+  --hh-primary: #4f46e5;
+  --hh-primary-light: #eef2ff;
+  --hh-teal: #0d9488;
+  --hh-ok: #059669;
+  --hh-ok-tx: #047857;
+  --hh-err: #dc2626;
+  --hh-warn-bg: #fef3c7;
+  --hh-warn-tx: #b45309;
+  --hh-border: #e2e8f0;
+  --hh-divider: #f1f5f9;
+  --hh-r-sm: 12px;
+  --hh-r-md: 16px;
+  --hh-r-lg: 20px;
+  --hh-r-xl: 24px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    Ubuntu,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--hh-bg2);
+  color: var(--hh-text);
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+.app-splash {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--hh-bg2);
+  color: var(--hh-text2);
+  font-size: 0.95rem;
+}
