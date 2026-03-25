@@ -150,7 +150,6 @@ export default function AppointmentsScreen({ onLogout }: Props) {
   const renderCard = (item: Appointment) => {
     const st = getStatusStyle(item.status);
     const isHomeVisit = item.type === 'home';
-    const isCenterVisit = item.type === 'center';
     const centerLabel = item.centerName || item.centerId || 'Center';
     const startIso = getStartForDisplay(item.start);
 
@@ -193,7 +192,7 @@ export default function AppointmentsScreen({ onLogout }: Props) {
               <span className={styles.cardMetaText}>{item.address}</span>
             </div>
           ) : null}
-          {isCenterVisit ? (
+          {item.centerId || item.centerName ? (
             <div className={styles.metaRow}>
               <IoBusinessOutline className={styles.metaIcon} size={14} />
               <span className={styles.cardMetaText}>{centerLabel}</span>

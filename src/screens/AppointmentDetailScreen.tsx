@@ -288,7 +288,7 @@ export default function AppointmentDetailScreen() {
 
           {centerName || appointment.centerId ? (
             <div className={styles.section}>
-              <p className={styles.label}>Center of Enquiry</p>
+              <p className={styles.label}>Center</p>
               <p className={styles.value}>{centerName || appointment.centerId || '—'}</p>
             </div>
           ) : null}

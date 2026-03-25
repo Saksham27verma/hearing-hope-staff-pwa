@@ -122,7 +122,7 @@ export function AppointmentsProvider({
           return toStr(a.start).localeCompare(toStr(b.start));
         });
 
-        const needCenterName = list.filter((a) => a.type === 'center' && a.centerId && !a.centerName);
+        const needCenterName = list.filter((a) => a.centerId && !a.centerName);
         if (needCenterName.length > 0) {
           const centersSnap = await getDocs(collection(db, 'centers'));
           const centerById: Record<string, string> = {};
