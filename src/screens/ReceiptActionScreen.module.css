@@ -232,3 +232,23 @@
   color: var(--hh-text2);
   margin-top: 0.2rem;
 }
+
+.templateStrong {
+  font-weight: 600;
+  color: var(--hh-text);
+}
+
+.templateHint {
+  font-size: 0.75rem;
+  color: var(--hh-text2);
+  line-height: 1.45;
+  margin: 0.5rem 0 0;
+}
+
+.templateMono {
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--hh-muted);
+  word-break: break-all;
+  margin: 0.25rem 0 0;
+}

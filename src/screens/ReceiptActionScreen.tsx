@@ -8,6 +8,11 @@ import { useAppointmentsContext } from '../context/AppointmentsContext';
 import { isPayableAppointmentForPayment } from '../utils/appointmentPayable';
 import { getStartForDisplay, formatTime } from '../dateUtils';
 import { submitCollectPayment, type PaymentMode, type ReceiptType } from '../api/collectPayment';
+import {
+  htmlTemplateIdForReceiptType,
+  loadStaffReceiptTemplateLabels,
+  type StaffReceiptTemplateLabels,
+} from '../api/receiptTemplateRouting';
 import { fetchAvailableInventory, type StaffInventoryRow } from '../api/staffInventory';
 import { fetchStaffEnquiryConfig, type FieldOption } from '../api/staffEnquiryConfig';
 import { fetchStaffProductsCatalog, type CatalogProduct } from '../api/staffProductsCatalog';
@@ -45,6 +50,7 @@ export default function ReceiptActionScreen() {
   const [receiptType, setReceiptType] = useState<ReceiptType>('booking');
   const [submitting, setSubmitting] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [templateLabels, setTemplateLabels] = useState<StaffReceiptTemplateLabels>({});
 
   const [earOptions, setEarOptions] = useState<FieldOption[]>(FALLBACK_EAR);
   const [trialLocOptions, setTrialLocOptions] = useState<FieldOption[]>(FALLBACK_TRIAL_LOC);
@@ -105,6 +111,21 @@ export default function ReceiptActionScreen() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const labels = await loadStaffReceiptTemplateLabels();
+        if (!cancelled) setTemplateLabels(labels);
+      } catch {
+        if (!cancelled) setTemplateLabels({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (receiptType === 'invoice' || (receiptType === 'trial' && trialLoc === 'home')) {
       void loadInventory();
     }
@@ -126,6 +147,12 @@ export default function ReceiptActionScreen() {
     const t = setTimeout(() => void loadCatalog(catalogSearch), 300);
     return () => clearTimeout(t);
   }, [catalogSearch, loadCatalog, receiptType]);
+
+  const currentPdfTemplate = useMemo(() => {
+    if (receiptType === 'booking') return templateLabels.booking;
+    if (receiptType === 'trial') return templateLabels.trial;
+    return templateLabels.invoice;
+  }, [receiptType, templateLabels]);
 
   const filteredInv = useMemo(() => {
     let base = inventoryItems;
@@ -376,12 +403,14 @@ export default function ReceiptActionScreen() {
                 },
               };
 
+      const htmlTemplateId = htmlTemplateIdForReceiptType(templateLabels, receiptType);
       const result = await submitCollectPayment({
         appointmentId: resolved.id,
         amount: n,
         paymentMode,
         receiptType,
         details,
+        ...(htmlTemplateId ? { htmlTemplateId } : {}),
       });
       if (!result.ok) {
         setErrorBanner(result.error || 'Could not send request');
@@ -482,6 +511,27 @@ export default function ReceiptActionScreen() {
               {t}
             </button>
           ))}
+        </div>
+
+        <div className={styles.card}>
+          <p className={styles.sectionLabel}>PDF template (CRM)</p>
+          {currentPdfTemplate ? (
+            <>
+              <p className={styles.meta} style={{ marginTop: 0 }}>
+                <span className={styles.templateStrong}>{currentPdfTemplate.name}</span>
+              </p>
+              <p className={styles.templateMono}>ID: {currentPdfTemplate.id}</p>
+              <p className={styles.templateHint}>
+                This template is pinned in CRM Invoice Manager. Its ID is sent with your request so the PDF matches what
+                admins see there.
+              </p>
+            </>
+          ) : (
+            <p className={styles.meta} style={{ marginTop: 0 }}>
+              No template pinned for this receipt type in CRM. The server will choose a default HTML template (same as
+              before Invoice Manager routing).
+            </p>
+          )}
         </div>
 
         {receiptType === 'booking' ? (
