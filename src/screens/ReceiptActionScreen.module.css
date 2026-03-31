@@ -164,3 +164,71 @@
     transform: rotate(360deg);
   }
 }
+
+.block {
+  margin-bottom: 1.25rem;
+}
+
+.blockTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--hh-text);
+  margin: 0 0 0.75rem;
+}
+
+.textarea {
+  width: 100%;
+  padding: 0.75rem 0.875rem;
+  font-size: 1rem;
+  border: 1px solid var(--hh-divider);
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  background: var(--hh-card);
+  color: var(--hh-text);
+  font-family: inherit;
+  resize: vertical;
+}
+
+.invList {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--hh-divider);
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  background: var(--hh-card);
+}
+
+.invRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: none;
+  border-bottom: 1px solid var(--hh-divider);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.invRow:last-child {
+  border-bottom: none;
+}
+
+.invRowActive {
+  background: var(--hh-primary-soft, rgba(79, 70, 229, 0.12));
+}
+
+.invName {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--hh-text);
+}
+
+.invSub {
+  font-size: 0.75rem;
+  color: var(--hh-text2);
+  margin-top: 0.2rem;
+}

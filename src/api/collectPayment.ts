@@ -1,21 +1,57 @@
 import { auth } from '../firebase';
 
 function getCrmUrl(): string {
-  return (
-    import.meta.env.VITE_CRM_URL ||
-    import.meta.env.CRM_BACKEND_URL ||
-    'http://localhost:3000'
-  );
+  return import.meta.env.VITE_CRM_URL || import.meta.env.CRM_BACKEND_URL || 'http://localhost:3000';
 }
 
 export type ReceiptType = 'trial' | 'booking' | 'invoice';
 export type PaymentMode = 'cash' | 'upi' | 'card';
+
+export type CollectPaymentBookingDetails = {
+  hearingAidBrand: string;
+  hearingAidModel: string;
+  hearingAidType: string;
+  whichEar: 'left' | 'right' | 'both';
+  hearingAidPrice: number;
+  bookingSellingPrice: number;
+  bookingQuantity: number;
+};
+
+export type CollectPaymentTrialDetails = {
+  trialHearingAidBrand: string;
+  trialHearingAidModel: string;
+  trialHearingAidType: string;
+  trialSerialNumber: string;
+  trialStartDate: string;
+  trialEndDate: string;
+  trialHomeSecurityDepositAmount: number;
+  trialNotes: string;
+};
+
+export type CollectPaymentSaleDetails = {
+  productId: string;
+  name: string;
+  company?: string;
+  serialNumber: string;
+  mrp: number;
+  sellingPrice: number;
+  discountPercent: number;
+  gstPercent: number;
+  quantity: number;
+};
+
+export type CollectPaymentDetails = {
+  booking?: CollectPaymentBookingDetails;
+  trial?: CollectPaymentTrialDetails;
+  sale?: CollectPaymentSaleDetails;
+};
 
 export async function submitCollectPayment(body: {
   appointmentId: string;
   amount: number;
   paymentMode: PaymentMode;
   receiptType: ReceiptType;
+  details: CollectPaymentDetails;
 }): Promise<{ ok: boolean; error?: string; emailSent?: boolean }> {
   const user = auth.currentUser;
   if (!user) {
