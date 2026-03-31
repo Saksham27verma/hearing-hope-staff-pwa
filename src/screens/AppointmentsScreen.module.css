@@ -167,12 +167,24 @@
   padding: 1.25rem;
   box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
   border: 1px solid transparent;
-  cursor: pointer;
   text-align: left;
   width: 100%;
   box-sizing: border-box;
   font: inherit;
   color: inherit;
+}
+
+.cardClickable {
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  display: block;
 }
 
 .cardHeader {
@@ -284,6 +296,22 @@
 .qaBtn:disabled {
   color: var(--hh-muted);
   cursor: not-allowed;
+}
+
+.logPaymentBtn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.75rem;
+  height: 44px;
+  border-radius: 12px;
+  border: none;
+  background: var(--hh-primary);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .centered {

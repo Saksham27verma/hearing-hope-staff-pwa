@@ -13,6 +13,7 @@ import { useAppointmentsContext } from '../context/AppointmentsContext';
 import type { Appointment } from '../types';
 import { theme } from '../theme';
 import { parseStartToDate, getStartForDisplay, isAppointmentToday, formatTime } from '../dateUtils';
+import { isPayableAppointmentForPayment } from '../utils/appointmentPayable';
 import styles from './AppointmentsScreen.module.css';
 
 type TabFilter = 'all' | 'today' | 'upcoming' | 'completed' | 'cancelled';
@@ -152,14 +153,15 @@ export default function AppointmentsScreen({ onLogout }: Props) {
     const isHomeVisit = item.type === 'home';
     const centerLabel = item.centerName || item.centerId || 'Center';
     const startIso = getStartForDisplay(item.start);
+    const showLogPayment = activeTab === 'today' && isPayableAppointmentForPayment(item);
 
     return (
-      <button
-        type="button"
-        key={item.id}
-        className={styles.card}
-        onClick={() => navigate(`/app/visit/${encodeURIComponent(item.id)}`)}
-      >
+      <div key={item.id} className={styles.card}>
+        <button
+          type="button"
+          className={styles.cardClickable}
+          onClick={() => navigate(`/app/visit/${encodeURIComponent(item.id)}`)}
+        >
         <div className={styles.cardHeader}>
           <div className={styles.cardTitleRow}>
             <span className={styles.cardName}>{item.patientName || item.title || 'Patient'}</span>
@@ -199,6 +201,7 @@ export default function AppointmentsScreen({ onLogout }: Props) {
             </div>
           ) : null}
         </div>
+        </button>
 
         <div className={styles.quickActions}>
           <button
@@ -221,8 +224,17 @@ export default function AppointmentsScreen({ onLogout }: Props) {
               <IoNavigate size={18} />
             </button>
           ) : null}
+          {showLogPayment ? (
+            <button
+              type="button"
+              className={styles.logPaymentBtn}
+              onClick={() => navigate(`/app/receipt/${encodeURIComponent(item.id)}`)}
+            >
+              Log payment
+            </button>
+          ) : null}
         </div>
-      </button>
+      </div>
     );
   };
 

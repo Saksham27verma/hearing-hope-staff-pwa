@@ -9,6 +9,7 @@ import { setupPushNotifications } from './services/pushNotifications';
 import LoginScreen from './screens/LoginScreen';
 import AppointmentsScreen from './screens/AppointmentsScreen';
 import AppointmentDetailScreen from './screens/AppointmentDetailScreen';
+import ReceiptActionScreen from './screens/ReceiptActionScreen';
 
 function StaffLayout({ user, onLogout }: { user: User; onLogout: () => void }) {
   return (
@@ -16,6 +17,7 @@ function StaffLayout({ user, onLogout }: { user: User; onLogout: () => void }) {
       <Routes>
         <Route index element={<AppointmentsScreen onLogout={onLogout} />} />
         <Route path="visit/:id" element={<AppointmentDetailScreen />} />
+        <Route path="receipt/:appointmentId" element={<ReceiptActionScreen />} />
       </Routes>
     </AppointmentsProvider>
   );
