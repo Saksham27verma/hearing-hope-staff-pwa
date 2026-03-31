@@ -138,6 +138,7 @@ export default function ReceiptActionScreen() {
       (it) =>
         it.name.toLowerCase().includes(q) ||
         it.company.toLowerCase().includes(q) ||
+        it.type.toLowerCase().includes(q) ||
         it.serialNumber.toLowerCase().includes(q)
     );
   }, [inventoryItems, invSearch, receiptType, trialLoc, trialProduct]);
@@ -622,7 +623,7 @@ export default function ReceiptActionScreen() {
                     >
                       <span className={styles.invName}>{it.name}</span>
                       <span className={styles.invSub}>
-                        {it.company} · SN {it.serialNumber} · ₹{it.mrp}
+                        {it.company} · {it.type} · SN {it.serialNumber} · ₹{it.mrp}
                       </span>
                     </button>
                   ))}
@@ -670,7 +671,7 @@ export default function ReceiptActionScreen() {
                 >
                   <span className={styles.invName}>{it.name}</span>
                   <span className={styles.invSub}>
-                    {it.company} · SN {it.serialNumber} · ₹{it.mrp}
+                    {it.company} · {it.type} · SN {it.serialNumber} · ₹{it.mrp}
                   </span>
                 </button>
               ))}
