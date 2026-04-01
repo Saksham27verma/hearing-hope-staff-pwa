@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, HTMLAttributes } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
-import { IoArrowBack, IoTrashOutline, IoAddCircleOutline, IoChevronDown, IoChevronForward, IoList } from 'react-icons/io5';
+import { ArrowLeft, ChevronDown, ChevronRight, CirclePlus, List, Trash2 } from 'lucide-react';
 import { auth, db } from '../firebase';
 import type { Appointment } from '../types';
 import { useAppointmentsContext } from '../context/AppointmentsContext';
@@ -108,6 +108,10 @@ export default function ReceiptActionScreen() {
   const [accessoryCatalogLoading, setAccessoryCatalogLoading] = useState(false);
 
   const [vsOpen, setVsOpen] = useState({ ht: true, acc: false, prog: false, cou: false });
+
+  const toggleVs = useCallback((key: 'ht' | 'acc' | 'prog' | 'cou') => {
+    setVsOpen((o) => ({ ...o, [key]: !o[key] }));
+  }, []);
 
   const [bookingProduct, setBookingProduct] = useState<CatalogProduct | null>(null);
   const [bookingEar, setBookingEar] = useState('both');
@@ -653,7 +657,7 @@ export default function ReceiptActionScreen() {
       <div className={styles.container}>
         <header className={styles.header}>
           <button type="button" className={styles.backBtn} onClick={() => navigate(-1)} aria-label="Back">
-            <IoArrowBack size={22} />
+            <ArrowLeft size={22} strokeWidth={2} />
           </button>
           <h1 className={styles.title}>Visit details</h1>
         </header>
@@ -671,20 +675,24 @@ export default function ReceiptActionScreen() {
     <div className={styles.container}>
       <header className={styles.header}>
         <button type="button" className={styles.backBtn} onClick={() => navigate(-1)} aria-label="Back">
-          <IoArrowBack size={22} />
+          <ArrowLeft size={22} strokeWidth={2} />
         </button>
-        <h1 className={styles.title}>Visit details</h1>
+        <div className={styles.headerCenter}>
+          <p className={styles.headerKicker}>Visit workspace</p>
+          <h1 className={styles.title}>Visit details</h1>
+        </div>
       </header>
 
-      <form className={styles.form} onSubmit={handleSubmit}>
+      <form id="receipt-form" className={styles.form} onSubmit={handleSubmit}>
         {errorBanner ? <p className={styles.errorText}>{errorBanner}</p> : null}
 
-        <div className={styles.card}>
-          <p className={styles.sectionLabel}>Appointment</p>
-          <p className={styles.patientName}>{resolved.patientName || resolved.title || 'Patient'}</p>
-          <p className={styles.meta}>Enquiry ID: {resolved.enquiryId || '—'}</p>
-          <p className={styles.meta}>Type: {typeLabel}</p>
-          <p className={styles.meta}>Time: {formatTime(startIso)}</p>
+        <div className={styles.appointmentHero}>
+          <p className={styles.heroKicker}>Appointment</p>
+          <p className={styles.heroName}>{resolved.patientName || resolved.title || 'Patient'}</p>
+          <p className={styles.heroMeta}>Enquiry · {resolved.enquiryId || '—'}</p>
+          <p className={styles.heroMeta}>
+            {typeLabel} · {formatTime(startIso)}
+          </p>
         </div>
 
         <h2 className={styles.visitBlockTitle}>Visit services (CRM)</h2>
@@ -697,15 +705,15 @@ export default function ReceiptActionScreen() {
           <p className={styles.visitMuted}>Visit services are not available for this appointment.</p>
         ) : (
           <div className={styles.visitServicesShell}>
-            <section className={styles.card}>
+            <section className={`${styles.visitSvcCard} ${hearingTest ? styles.visitSvcCardOn : ''}`}>
               <div className={styles.vsRowBetween}>
                 <button
                   type="button"
                   className={styles.vsSectionHeaderTap}
-                  onClick={() => setVsOpen((o) => ({ ...o, ht: !o.ht }))}
+                  onClick={() => toggleVs('ht')}
                   disabled={visitFormBusy}
                 >
-                  {vsOpen.ht ? <IoChevronDown size={18} /> : <IoChevronForward size={18} />}
+                  {vsOpen.ht ? <ChevronDown size={18} strokeWidth={2} /> : <ChevronRight size={18} strokeWidth={2} />}
                   <span className={styles.vsSectionTitle}>Hearing test</span>
                 </button>
                 <input
@@ -743,7 +751,7 @@ export default function ReceiptActionScreen() {
                               disabled={visitFormBusy}
                             >
                               <span className={styles.vsPickerBtnText}>{resolveHtLabel(row)}</span>
-                              <IoChevronDown size={18} />
+                              <ChevronDown size={18} strokeWidth={2} />
                             </button>
                           )}
                           <button
@@ -786,7 +794,7 @@ export default function ReceiptActionScreen() {
                           onClick={() => setHtEntries((prev) => prev.filter((r) => r.id !== row.id))}
                           aria-label="Remove row"
                         >
-                          <IoTrashOutline size={22} />
+                          <Trash2 size={22} strokeWidth={2} />
                         </button>
                       </div>
                     </div>
@@ -802,7 +810,7 @@ export default function ReceiptActionScreen() {
                       ])
                     }
                   >
-                    <IoAddCircleOutline size={18} />
+                    <CirclePlus size={18} strokeWidth={2} />
                     Add test line
                   </button>
                   <label className={styles.vsFieldLabel}>Test done by</label>
@@ -815,7 +823,7 @@ export default function ReceiptActionScreen() {
                     <span className={styles.vsPickerBtnText}>
                       {testDoneBy.trim() || 'Select staff (CRM list)'}
                     </span>
-                    <IoChevronDown size={18} />
+                    <ChevronDown size={18} strokeWidth={2} />
                   </button>
                   <VsField label="Test results" value={testResults} onChange={setTestResults} multiline disabled={visitFormBusy} />
                   <VsField
@@ -829,15 +837,15 @@ export default function ReceiptActionScreen() {
               ) : null}
             </section>
 
-            <section className={styles.card}>
+            <section className={`${styles.visitSvcCard} ${accessory ? styles.visitSvcCardOn : ''}`}>
               <div className={styles.vsRowBetween}>
                 <button
                   type="button"
                   className={styles.vsSectionHeaderTap}
-                  onClick={() => setVsOpen((o) => ({ ...o, acc: !o.acc }))}
+                  onClick={() => toggleVs('acc')}
                   disabled={visitFormBusy}
                 >
-                  {vsOpen.acc ? <IoChevronDown size={18} /> : <IoChevronForward size={18} />}
+                  {vsOpen.acc ? <ChevronDown size={18} strokeWidth={2} /> : <ChevronRight size={18} strokeWidth={2} />}
                   <span className={styles.vsSectionTitle}>Accessory</span>
                 </button>
                 <input
@@ -859,7 +867,7 @@ export default function ReceiptActionScreen() {
                     }}
                     disabled={visitFormBusy}
                   >
-                    <IoList size={18} />
+                    <List size={18} strokeWidth={2} />
                     <span>Pick from catalog (Accessory / Battery / Charger)</span>
                   </button>
                   <VsField label="Accessory name *" value={accessoryName} onChange={setAccessoryName} disabled={visitFormBusy} />
@@ -879,15 +887,15 @@ export default function ReceiptActionScreen() {
               ) : null}
             </section>
 
-            <section className={styles.card}>
+            <section className={`${styles.visitSvcCard} ${programming ? styles.visitSvcCardOn : ''}`}>
               <div className={styles.vsRowBetween}>
                 <button
                   type="button"
                   className={styles.vsSectionHeaderTap}
-                  onClick={() => setVsOpen((o) => ({ ...o, prog: !o.prog }))}
+                  onClick={() => toggleVs('prog')}
                   disabled={visitFormBusy}
                 >
-                  {vsOpen.prog ? <IoChevronDown size={18} /> : <IoChevronForward size={18} />}
+                  {vsOpen.prog ? <ChevronDown size={18} strokeWidth={2} /> : <ChevronRight size={18} strokeWidth={2} />}
                   <span className={styles.vsSectionTitle}>Programming</span>
                 </button>
                 <input
@@ -912,7 +920,7 @@ export default function ReceiptActionScreen() {
                     <span className={styles.vsPickerBtnText}>
                       {programmingDoneBy.trim() || 'Select staff (CRM list)'}
                     </span>
-                    <IoChevronDown size={18} />
+                    <ChevronDown size={18} strokeWidth={2} />
                   </button>
                   <VsField label="HA purchase date" value={hearingAidPurchaseDate} onChange={setHearingAidPurchaseDate} disabled={visitFormBusy} />
                   <VsField label="Hearing aid name" value={hearingAidName} onChange={setHearingAidName} disabled={visitFormBusy} />
@@ -930,15 +938,15 @@ export default function ReceiptActionScreen() {
               ) : null}
             </section>
 
-            <section className={styles.card}>
+            <section className={`${styles.visitSvcCard} ${counselling ? styles.visitSvcCardOn : ''}`}>
               <div className={styles.vsRowBetween}>
                 <button
                   type="button"
                   className={styles.vsSectionHeaderTap}
-                  onClick={() => setVsOpen((o) => ({ ...o, cou: !o.cou }))}
+                  onClick={() => toggleVs('cou')}
                   disabled={visitFormBusy}
                 >
-                  {vsOpen.cou ? <IoChevronDown size={18} /> : <IoChevronForward size={18} />}
+                  {vsOpen.cou ? <ChevronDown size={18} strokeWidth={2} /> : <ChevronRight size={18} strokeWidth={2} />}
                   <span className={styles.vsSectionTitle}>Counselling</span>
                 </button>
                 <input
@@ -954,40 +962,40 @@ export default function ReceiptActionScreen() {
               ) : null}
             </section>
 
-            <button
-              type="button"
-              className={styles.visitSaveOutline}
-              disabled={visitFormBusy}
-              onClick={() => void handleSaveVisitServices()}
-            >
-              {savingVisitServices ? 'Saving…' : 'Save visit services'}
-            </button>
           </div>
         )}
 
         <h2 className={styles.visitBlockTitle}>Payment & receipt</h2>
         <p className={styles.visitHint}>Collect payment for trial, booking, or sale — request goes to admin for verification.</p>
 
-        <label className={styles.label} htmlFor="amount">
-          Payment collected today (₹)
-        </label>
-        <input
-          id="amount"
-          className={styles.input}
-          inputMode="decimal"
-          placeholder="0"
-          value={amount}
-          onChange={(ev) => setAmount(ev.target.value)}
-          disabled={visitFormBusy}
-        />
+        <div className={styles.amountHero}>
+          <label className={styles.amountLabel} htmlFor="amount">
+            Payment collected today
+          </label>
+          <div className={styles.amountRow}>
+            <span className={styles.amountRupee} aria-hidden>
+              ₹
+            </span>
+            <input
+              id="amount"
+              className={styles.amountInput}
+              inputMode="decimal"
+              placeholder="0"
+              value={amount}
+              onChange={(ev) => setAmount(ev.target.value)}
+              disabled={visitFormBusy}
+              autoComplete="off"
+            />
+          </div>
+        </div>
 
-        <p className={styles.label}>Payment mode</p>
-        <div className={styles.chips}>
+        <p className={styles.pillGroupLabel}>Payment mode</p>
+        <div className={styles.pillRow}>
           {(['cash', 'upi', 'card'] as const).map((m) => (
             <button
               key={m}
               type="button"
-              className={`${styles.chip} ${paymentMode === m ? styles.chipActive : ''}`}
+              className={`${styles.pill} ${paymentMode === m ? styles.pillActive : ''}`}
               onClick={() => setPaymentMode(m)}
               disabled={visitFormBusy}
             >
@@ -996,22 +1004,22 @@ export default function ReceiptActionScreen() {
           ))}
         </div>
 
-        <p className={styles.label}>Receipt type</p>
-        <div className={styles.chips}>
+        <p className={styles.pillGroupLabel}>Receipt type</p>
+        <div className={styles.pillRow}>
           {(['trial', 'booking', 'invoice'] as const).map((t) => (
             <button
               key={t}
               type="button"
-              className={`${styles.chip} ${receiptType === t ? styles.chipActive : ''}`}
+              className={`${styles.pill} ${receiptType === t ? styles.pillActive : ''}`}
               onClick={() => setReceiptType(t)}
               disabled={visitFormBusy}
             >
-              {t}
+              {t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
 
-        <div className={styles.card}>
+        <div className={styles.softCard}>
           <p className={styles.sectionLabel}>PDF template (CRM)</p>
           {currentPdfTemplate ? (
             <>
@@ -1239,9 +1247,21 @@ export default function ReceiptActionScreen() {
           </div>
         ) : null}
 
-        <button type="submit" className={styles.submit} disabled={visitFormBusy}>
-          {submitting ? 'Sending…' : 'Send payment to admin'}
-        </button>
+        <div className={styles.actionDock}>
+          {showVisitServicesForm ? (
+            <button
+              type="button"
+              className={styles.btnPrimarySolid}
+              disabled={visitFormBusy}
+              onClick={() => void handleSaveVisitServices()}
+            >
+              {savingVisitServices ? 'Saving…' : 'Save visit services'}
+            </button>
+          ) : null}
+          <button type="submit" className={styles.btnTealSolid} disabled={visitFormBusy}>
+            {submitting ? 'Sending…' : 'Send payment to admin'}
+          </button>
+        </div>
       </form>
 
       {selectModal ? (
