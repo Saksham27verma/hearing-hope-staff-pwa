@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { FormEvent, HTMLAttributes } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
-import { IoArrowBack, IoTrashOutline, IoAddCircleOutline } from 'react-icons/io5';
+import { IoArrowBack, IoTrashOutline, IoAddCircleOutline, IoChevronDown, IoChevronForward, IoList } from 'react-icons/io5';
 import { auth, db } from '../firebase';
 import type { Appointment } from '../types';
 import { useAppointmentsContext } from '../context/AppointmentsContext';
@@ -37,7 +38,13 @@ const FALLBACK_TRIAL_LOC: FieldOption[] = [
   { optionValue: 'home', optionLabel: 'Home Trial', sortOrder: 20 },
 ];
 
-type HtEntry = { id: string; testType: string; price: string };
+const ACCESSORY_CATALOG_TYPES = ['Accessory', 'Battery', 'Charger', 'Other'] as const;
+
+function isAccessoryCatalogProduct(p: CatalogProduct): boolean {
+  return (ACCESSORY_CATALOG_TYPES as readonly string[]).includes(p.type);
+}
+
+type HtEntry = { id: string; testType: string; price: string; testTypeCustom?: boolean };
 
 function newHtId() {
   return `ht-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -60,7 +67,9 @@ export default function ReceiptActionScreen() {
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   const [hearingTest, setHearingTest] = useState(false);
-  const [htEntries, setHtEntries] = useState<HtEntry[]>([{ id: newHtId(), testType: '', price: '' }]);
+  const [htEntries, setHtEntries] = useState<HtEntry[]>([
+    { id: newHtId(), testType: '', price: '', testTypeCustom: false },
+  ]);
   const [testDoneBy, setTestDoneBy] = useState('');
   const [testResults, setTestResults] = useState('');
   const [recommendations, setRecommendations] = useState('');
@@ -84,6 +93,21 @@ export default function ReceiptActionScreen() {
 
   const [earOptions, setEarOptions] = useState<FieldOption[]>(FALLBACK_EAR);
   const [trialLocOptions, setTrialLocOptions] = useState<FieldOption[]>(FALLBACK_TRIAL_LOC);
+  const [hearingTestTypeOptions, setHearingTestTypeOptions] = useState<FieldOption[]>([]);
+  const [staffNames, setStaffNames] = useState<string[]>([]);
+
+  const [selectModal, setSelectModal] = useState<
+    null | { kind: 'ht'; rowId: string } | { kind: 'staff_test' } | { kind: 'staff_prog' }
+  >(null);
+  const [optionSearch, setOptionSearch] = useState('');
+  const [staffCustomDraft, setStaffCustomDraft] = useState('');
+
+  const [accessoryCatalogModal, setAccessoryCatalogModal] = useState(false);
+  const [accessoryCatalogSearch, setAccessoryCatalogSearch] = useState('');
+  const [accessoryCatalogItems, setAccessoryCatalogItems] = useState<CatalogProduct[]>([]);
+  const [accessoryCatalogLoading, setAccessoryCatalogLoading] = useState(false);
+
+  const [vsOpen, setVsOpen] = useState({ ht: true, acc: false, prog: false, cou: false });
 
   const [bookingProduct, setBookingProduct] = useState<CatalogProduct | null>(null);
   const [bookingEar, setBookingEar] = useState('both');
@@ -136,9 +160,74 @@ export default function ReceiptActionScreen() {
       if (r.ok) {
         if (r.earSide?.length) setEarOptions(r.earSide);
         if (r.trialLocationType?.length) setTrialLocOptions(r.trialLocationType);
+        if (r.hearingTestType?.length) setHearingTestTypeOptions(r.hearingTestType);
+        if (r.staffNames?.length) setStaffNames(r.staffNames);
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (hearingTest) setVsOpen((o) => ({ ...o, ht: true }));
+  }, [hearingTest]);
+  useEffect(() => {
+    if (accessory) setVsOpen((o) => ({ ...o, acc: true }));
+  }, [accessory]);
+  useEffect(() => {
+    if (programming) setVsOpen((o) => ({ ...o, prog: true }));
+  }, [programming]);
+  useEffect(() => {
+    if (counselling) setVsOpen((o) => ({ ...o, cou: true }));
+  }, [counselling]);
+
+  useEffect(() => {
+    if (selectModal) {
+      setOptionSearch('');
+      setStaffCustomDraft('');
+    }
+  }, [selectModal]);
+
+  const loadAccessoryCatalog = useCallback(async (q: string) => {
+    setAccessoryCatalogLoading(true);
+    try {
+      const r = await fetchStaffProductsCatalog(q);
+      if (r.ok && r.products) {
+        setAccessoryCatalogItems(r.products.filter(isAccessoryCatalogProduct));
+      } else setAccessoryCatalogItems([]);
+    } finally {
+      setAccessoryCatalogLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!accessoryCatalogModal) return;
+    const delay = accessoryCatalogSearch.trim() ? 300 : 0;
+    const t = setTimeout(() => void loadAccessoryCatalog(accessoryCatalogSearch), delay);
+    return () => clearTimeout(t);
+  }, [accessoryCatalogModal, accessoryCatalogSearch, loadAccessoryCatalog]);
+
+  const filteredHtOptions = useMemo(() => {
+    const q = optionSearch.trim().toLowerCase();
+    const base = [...hearingTestTypeOptions].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    if (!q) return base;
+    return base.filter(
+      (o) => o.optionLabel.toLowerCase().includes(q) || o.optionValue.toLowerCase().includes(q)
+    );
+  }, [hearingTestTypeOptions, optionSearch]);
+
+  const filteredStaffModal = useMemo(() => {
+    const q = optionSearch.trim().toLowerCase();
+    if (!q) return staffNames;
+    return staffNames.filter((s) => s.toLowerCase().includes(q));
+  }, [staffNames, optionSearch]);
+
+  const resolveHtLabel = useCallback(
+    (row: HtEntry) => {
+      if (row.testTypeCustom) return row.testType.trim() || 'Custom type';
+      const o = hearingTestTypeOptions.find((x) => x.optionValue === row.testType);
+      return o?.optionLabel || row.testType || 'Select test type';
+    },
+    [hearingTestTypeOptions]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -307,7 +396,7 @@ export default function ReceiptActionScreen() {
     }
   }, [selectedInv]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const n = Number(amount.replace(/,/g, '').trim());
     if (!Number.isFinite(n) || n <= 0) {
@@ -600,17 +689,25 @@ export default function ReceiptActionScreen() {
 
         <h2 className={styles.visitBlockTitle}>Visit services (CRM)</h2>
         <p className={styles.visitHint}>
-          Log tests, accessories, programming, and counselling. Requires internet. Link an enquiry in CRM if missing.
+          Same test types and staff names as the CRM enquiry form. Requires internet. Link an enquiry if missing.
         </p>
         {!resolved.enquiryId?.trim() ? (
           <p className={styles.visitMuted}>No enquiry linked — connect this appointment in CRM to save visit services.</p>
         ) : !showVisitServicesForm ? (
           <p className={styles.visitMuted}>Visit services are not available for this appointment.</p>
         ) : (
-          <>
+          <div className={styles.visitServicesShell}>
             <section className={styles.card}>
               <div className={styles.vsRowBetween}>
-                <span className={styles.vsSectionTitle}>Hearing test</span>
+                <button
+                  type="button"
+                  className={styles.vsSectionHeaderTap}
+                  onClick={() => setVsOpen((o) => ({ ...o, ht: !o.ht }))}
+                  disabled={visitFormBusy}
+                >
+                  {vsOpen.ht ? <IoChevronDown size={18} /> : <IoChevronForward size={18} />}
+                  <span className={styles.vsSectionTitle}>Hearing test</span>
+                </button>
                 <input
                   type="checkbox"
                   checked={hearingTest}
@@ -619,56 +716,107 @@ export default function ReceiptActionScreen() {
                   aria-label="Hearing test"
                 />
               </div>
-              {hearingTest ? (
+              {hearingTest && vsOpen.ht ? (
                 <>
                   {htEntries.map((row) => (
-                    <div key={row.id} className={styles.vsHtRow}>
-                      <input
-                        className={styles.vsInput}
-                        placeholder="Test type"
-                        value={row.testType}
-                        disabled={visitFormBusy}
-                        onChange={(e) => {
-                          const next = [...htEntries];
-                          const idx = next.findIndex((r) => r.id === row.id);
-                          if (idx >= 0) next[idx] = { ...row, testType: e.target.value };
-                          setHtEntries(next);
-                        }}
-                      />
-                      <input
-                        className={`${styles.vsInput} ${styles.vsPriceInput}`}
-                        placeholder="₹"
-                        inputMode="decimal"
-                        value={row.price}
-                        disabled={visitFormBusy}
-                        onChange={(e) => {
-                          const next = [...htEntries];
-                          const idx = next.findIndex((r) => r.id === row.id);
-                          if (idx >= 0) next[idx] = { ...row, price: e.target.value };
-                          setHtEntries(next);
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className={styles.vsTrashBtn}
-                        disabled={htEntries.length <= 1 || visitFormBusy}
-                        onClick={() => setHtEntries((prev) => prev.filter((r) => r.id !== row.id))}
-                        aria-label="Remove row"
-                      >
-                        <IoTrashOutline size={22} />
-                      </button>
+                    <div key={row.id} className={styles.vsHtBlock}>
+                      <div className={styles.vsHtRow}>
+                        <div className={styles.vsHtTypeCol}>
+                          {row.testTypeCustom ? (
+                            <input
+                              className={styles.vsInput}
+                              placeholder="Custom test type"
+                              value={row.testType}
+                              disabled={visitFormBusy}
+                              onChange={(e) => {
+                                const next = [...htEntries];
+                                const idx = next.findIndex((r) => r.id === row.id);
+                                if (idx >= 0) next[idx] = { ...row, testType: e.target.value };
+                                setHtEntries(next);
+                              }}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.vsPickerBtn}
+                              onClick={() => setSelectModal({ kind: 'ht', rowId: row.id })}
+                              disabled={visitFormBusy}
+                            >
+                              <span className={styles.vsPickerBtnText}>{resolveHtLabel(row)}</span>
+                              <IoChevronDown size={18} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className={styles.vsToggleLink}
+                            onClick={() => {
+                              const next = [...htEntries];
+                              const idx = next.findIndex((r) => r.id === row.id);
+                              if (idx >= 0) {
+                                next[idx] = {
+                                  ...row,
+                                  testTypeCustom: !row.testTypeCustom,
+                                  testType: row.testTypeCustom ? '' : row.testType,
+                                };
+                                setHtEntries(next);
+                              }
+                            }}
+                            disabled={visitFormBusy}
+                          >
+                            {row.testTypeCustom ? 'Use CRM list' : 'Custom'}
+                          </button>
+                        </div>
+                        <input
+                          className={`${styles.vsInput} ${styles.vsPriceInput}`}
+                          placeholder="₹"
+                          inputMode="decimal"
+                          value={row.price}
+                          disabled={visitFormBusy}
+                          onChange={(e) => {
+                            const next = [...htEntries];
+                            const idx = next.findIndex((r) => r.id === row.id);
+                            if (idx >= 0) next[idx] = { ...row, price: e.target.value };
+                            setHtEntries(next);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className={styles.vsTrashBtn}
+                          disabled={htEntries.length <= 1 || visitFormBusy}
+                          onClick={() => setHtEntries((prev) => prev.filter((r) => r.id !== row.id))}
+                          aria-label="Remove row"
+                        >
+                          <IoTrashOutline size={22} />
+                        </button>
+                      </div>
                     </div>
                   ))}
                   <button
                     type="button"
                     className={styles.vsAddRow}
                     disabled={visitFormBusy}
-                    onClick={() => setHtEntries((prev) => [...prev, { id: newHtId(), testType: '', price: '' }])}
+                    onClick={() =>
+                      setHtEntries((prev) => [
+                        ...prev,
+                        { id: newHtId(), testType: '', price: '', testTypeCustom: false },
+                      ])
+                    }
                   >
                     <IoAddCircleOutline size={18} />
                     Add test line
                   </button>
-                  <VsField label="Test done by" value={testDoneBy} onChange={setTestDoneBy} disabled={visitFormBusy} />
+                  <label className={styles.vsFieldLabel}>Test done by</label>
+                  <button
+                    type="button"
+                    className={styles.vsPickerBtn}
+                    onClick={() => setSelectModal({ kind: 'staff_test' })}
+                    disabled={visitFormBusy}
+                  >
+                    <span className={styles.vsPickerBtnText}>
+                      {testDoneBy.trim() || 'Select staff (CRM list)'}
+                    </span>
+                    <IoChevronDown size={18} />
+                  </button>
                   <VsField label="Test results" value={testResults} onChange={setTestResults} multiline disabled={visitFormBusy} />
                   <VsField
                     label="Recommendations"
@@ -683,7 +831,15 @@ export default function ReceiptActionScreen() {
 
             <section className={styles.card}>
               <div className={styles.vsRowBetween}>
-                <span className={styles.vsSectionTitle}>Accessory</span>
+                <button
+                  type="button"
+                  className={styles.vsSectionHeaderTap}
+                  onClick={() => setVsOpen((o) => ({ ...o, acc: !o.acc }))}
+                  disabled={visitFormBusy}
+                >
+                  {vsOpen.acc ? <IoChevronDown size={18} /> : <IoChevronForward size={18} />}
+                  <span className={styles.vsSectionTitle}>Accessory</span>
+                </button>
                 <input
                   type="checkbox"
                   checked={accessory}
@@ -692,8 +848,20 @@ export default function ReceiptActionScreen() {
                   aria-label="Accessory"
                 />
               </div>
-              {accessory ? (
+              {accessory && vsOpen.acc ? (
                 <>
+                  <button
+                    type="button"
+                    className={styles.vsCatalogLink}
+                    onClick={() => {
+                      setAccessoryCatalogSearch('');
+                      setAccessoryCatalogModal(true);
+                    }}
+                    disabled={visitFormBusy}
+                  >
+                    <IoList size={18} />
+                    <span>Pick from catalog (Accessory / Battery / Charger)</span>
+                  </button>
                   <VsField label="Accessory name *" value={accessoryName} onChange={setAccessoryName} disabled={visitFormBusy} />
                   <VsField label="Details" value={accessoryDetails} onChange={setAccessoryDetails} multiline disabled={visitFormBusy} />
                   <div className={styles.vsRowBetween}>
@@ -713,7 +881,15 @@ export default function ReceiptActionScreen() {
 
             <section className={styles.card}>
               <div className={styles.vsRowBetween}>
-                <span className={styles.vsSectionTitle}>Programming</span>
+                <button
+                  type="button"
+                  className={styles.vsSectionHeaderTap}
+                  onClick={() => setVsOpen((o) => ({ ...o, prog: !o.prog }))}
+                  disabled={visitFormBusy}
+                >
+                  {vsOpen.prog ? <IoChevronDown size={18} /> : <IoChevronForward size={18} />}
+                  <span className={styles.vsSectionTitle}>Programming</span>
+                </button>
                 <input
                   type="checkbox"
                   checked={programming}
@@ -722,11 +898,22 @@ export default function ReceiptActionScreen() {
                   aria-label="Programming"
                 />
               </div>
-              {programming ? (
+              {programming && vsOpen.prog ? (
                 <>
                   <VsField label="Reason" value={programmingReason} onChange={setProgrammingReason} multiline disabled={visitFormBusy} />
                   <VsField label="Amount (₹)" value={programmingAmount} onChange={setProgrammingAmount} inputMode="decimal" disabled={visitFormBusy} />
-                  <VsField label="Done by" value={programmingDoneBy} onChange={setProgrammingDoneBy} disabled={visitFormBusy} />
+                  <label className={styles.vsFieldLabel}>Done by</label>
+                  <button
+                    type="button"
+                    className={styles.vsPickerBtn}
+                    onClick={() => setSelectModal({ kind: 'staff_prog' })}
+                    disabled={visitFormBusy}
+                  >
+                    <span className={styles.vsPickerBtnText}>
+                      {programmingDoneBy.trim() || 'Select staff (CRM list)'}
+                    </span>
+                    <IoChevronDown size={18} />
+                  </button>
                   <VsField label="HA purchase date" value={hearingAidPurchaseDate} onChange={setHearingAidPurchaseDate} disabled={visitFormBusy} />
                   <VsField label="Hearing aid name" value={hearingAidName} onChange={setHearingAidName} disabled={visitFormBusy} />
                   <div className={styles.vsRowBetween}>
@@ -745,7 +932,15 @@ export default function ReceiptActionScreen() {
 
             <section className={styles.card}>
               <div className={styles.vsRowBetween}>
-                <span className={styles.vsSectionTitle}>Counselling</span>
+                <button
+                  type="button"
+                  className={styles.vsSectionHeaderTap}
+                  onClick={() => setVsOpen((o) => ({ ...o, cou: !o.cou }))}
+                  disabled={visitFormBusy}
+                >
+                  {vsOpen.cou ? <IoChevronDown size={18} /> : <IoChevronForward size={18} />}
+                  <span className={styles.vsSectionTitle}>Counselling</span>
+                </button>
                 <input
                   type="checkbox"
                   checked={counselling}
@@ -754,7 +949,7 @@ export default function ReceiptActionScreen() {
                   aria-label="Counselling"
                 />
               </div>
-              {counselling ? (
+              {counselling && vsOpen.cou ? (
                 <VsField label="Notes" value={counsellingNotes} onChange={setCounsellingNotes} multiline disabled={visitFormBusy} />
               ) : null}
             </section>
@@ -767,7 +962,7 @@ export default function ReceiptActionScreen() {
             >
               {savingVisitServices ? 'Saving…' : 'Save visit services'}
             </button>
-          </>
+          </div>
         )}
 
         <h2 className={styles.visitBlockTitle}>Payment & receipt</h2>
@@ -1048,6 +1243,178 @@ export default function ReceiptActionScreen() {
           {submitting ? 'Sending…' : 'Send payment to admin'}
         </button>
       </form>
+
+      {selectModal ? (
+        <div
+          className={styles.vsModalBackdrop}
+          role="presentation"
+          onClick={() => setSelectModal(null)}
+          onKeyDown={(e) => e.key === 'Escape' && setSelectModal(null)}
+        >
+          <div
+            className={styles.vsModalPanel}
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={styles.vsModalHeader}>
+              <button type="button" className={styles.vsModalClose} onClick={() => setSelectModal(null)}>
+                Close
+              </button>
+              <h2 className={styles.vsModalTitle}>
+                {selectModal.kind === 'ht'
+                  ? 'Test type'
+                  : selectModal.kind === 'staff_test'
+                    ? 'Test done by'
+                    : 'Programming done by'}
+              </h2>
+            </div>
+            <input
+              className={styles.input}
+              placeholder={selectModal.kind === 'ht' ? 'Search test types' : 'Search staff'}
+              value={optionSearch}
+              onChange={(e) => setOptionSearch(e.target.value)}
+            />
+            {selectModal.kind === 'ht' ? (
+              <div className={styles.vsModalList}>
+                {filteredHtOptions.map((item) => (
+                  <button
+                    key={item.optionValue}
+                    type="button"
+                    className={styles.vsModalRow}
+                    onClick={() => {
+                      const rowId = selectModal.kind === 'ht' ? selectModal.rowId : '';
+                      const idx = htEntries.findIndex((x) => x.id === rowId);
+                      if (idx >= 0) {
+                        const next = [...htEntries];
+                        next[idx] = { ...next[idx], testType: item.optionValue, testTypeCustom: false };
+                        setHtEntries(next);
+                      }
+                      setSelectModal(null);
+                    }}
+                  >
+                    <span className={styles.invName}>{item.optionLabel}</span>
+                    <span className={styles.invSub}>{item.optionValue}</span>
+                  </button>
+                ))}
+                {filteredHtOptions.length === 0 ? (
+                  <p className={styles.visitMuted}>No matching types. Try custom.</p>
+                ) : null}
+                <button
+                  type="button"
+                  className={styles.vsModalRow}
+                  onClick={() => {
+                    const rowId = selectModal.kind === 'ht' ? selectModal.rowId : '';
+                    const idx = htEntries.findIndex((x) => x.id === rowId);
+                    if (idx >= 0) {
+                      const next = [...htEntries];
+                      next[idx] = { ...next[idx], testType: '', testTypeCustom: true };
+                      setHtEntries(next);
+                    }
+                    setSelectModal(null);
+                  }}
+                >
+                  <span className={styles.invName}>Other / custom…</span>
+                  <span className={styles.invSub}>Enter text in the form</span>
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className={styles.vsModalList}>
+                  {filteredStaffModal.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      className={styles.vsModalRow}
+                      onClick={() => {
+                        if (selectModal.kind === 'staff_test') setTestDoneBy(item);
+                        if (selectModal.kind === 'staff_prog') setProgrammingDoneBy(item);
+                        setSelectModal(null);
+                      }}
+                    >
+                      <span className={styles.invName}>{item}</span>
+                    </button>
+                  ))}
+                  {filteredStaffModal.length === 0 ? <p className={styles.visitMuted}>No matches.</p> : null}
+                </div>
+                <label className={styles.vsFieldLabel}>Name not listed</label>
+                <input
+                  className={styles.input}
+                  placeholder="Type full name"
+                  value={staffCustomDraft}
+                  onChange={(e) => setStaffCustomDraft(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className={styles.vsModalPrimary}
+                  onClick={() => {
+                    const t = staffCustomDraft.trim();
+                    if (!t) return;
+                    if (selectModal.kind === 'staff_test') setTestDoneBy(t);
+                    if (selectModal.kind === 'staff_prog') setProgrammingDoneBy(t);
+                    setSelectModal(null);
+                  }}
+                >
+                  Use this name
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {accessoryCatalogModal ? (
+        <div
+          className={styles.vsModalBackdrop}
+          role="presentation"
+          onClick={() => setAccessoryCatalogModal(false)}
+        >
+          <div
+            className={styles.vsModalPanel}
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={styles.vsModalHeader}>
+              <button type="button" className={styles.vsModalClose} onClick={() => setAccessoryCatalogModal(false)}>
+                Close
+              </button>
+              <h2 className={styles.vsModalTitle}>Accessory catalog</h2>
+            </div>
+            <input
+              className={styles.input}
+              placeholder="Search accessory, battery, charger"
+              value={accessoryCatalogSearch}
+              onChange={(e) => setAccessoryCatalogSearch(e.target.value)}
+            />
+            {accessoryCatalogLoading ? (
+              <p className={styles.meta}>Loading…</p>
+            ) : (
+              <div className={styles.vsModalList}>
+                {accessoryCatalogItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={styles.vsModalRow}
+                    onClick={() => {
+                      setAccessoryName(item.name);
+                      setAccessoryCatalogModal(false);
+                    }}
+                  >
+                    <span className={styles.invName}>{item.name}</span>
+                    <span className={styles.invSub}>
+                      {item.company} · {item.type} · ₹{item.mrp ?? 0}
+                    </span>
+                  </button>
+                ))}
+                {accessoryCatalogItems.length === 0 ? (
+                  <p className={styles.visitMuted}>No products. Try search.</p>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1064,7 +1431,7 @@ function VsField({
   value: string;
   onChange: (v: string) => void;
   multiline?: boolean;
-  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  inputMode?: HTMLAttributes<HTMLInputElement>['inputMode'];
   disabled?: boolean;
 }) {
   return (

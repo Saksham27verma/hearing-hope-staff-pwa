@@ -369,3 +369,198 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.visitServicesShell {
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 0.25rem;
+}
+
+.vsSectionHeaderTap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.vsSectionHeaderTap:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.vsPickerBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.35rem;
+  border: 1px solid var(--hh-divider);
+  border-radius: 10px;
+  background: var(--hh-card);
+  color: var(--hh-text);
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.vsPickerBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.vsPickerBtnText {
+  flex: 1;
+  min-width: 0;
+}
+
+.vsToggleLink {
+  display: block;
+  margin-bottom: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--hh-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.vsCatalogLink {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-bottom: 0.75rem;
+  padding: 0.35rem 0;
+  border: none;
+  background: none;
+  color: var(--hh-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.vsHtBlock {
+  margin-bottom: 0.35rem;
+}
+
+.vsHtTypeCol {
+  flex: 1;
+  min-width: 0;
+}
+
+.vsModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+}
+
+@media (min-width: 520px) {
+  .vsModalBackdrop {
+    align-items: center;
+    padding: 1rem;
+  }
+}
+
+.vsModalPanel {
+  width: 100%;
+  max-width: 480px;
+  max-height: min(90dvh, 640px);
+  overflow: auto;
+  background: var(--hh-card);
+  border-radius: 16px 16px 0 0;
+  padding: 1rem;
+  box-shadow: 0 -8px 32px rgba(15, 23, 42, 0.2);
+}
+
+@media (min-width: 520px) {
+  .vsModalPanel {
+    border-radius: 16px;
+  }
+}
+
+.vsModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.vsModalClose {
+  border: none;
+  background: none;
+  color: var(--hh-primary);
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.vsModalTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+  flex: 1;
+  text-align: center;
+}
+
+.vsModalList {
+  max-height: 45dvh;
+  overflow-y: auto;
+  border: 1px solid var(--hh-divider);
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+  background: var(--hh-bg);
+}
+
+.vsModalRow {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: none;
+  border-bottom: 1px solid var(--hh-divider);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.vsModalRow:last-child {
+  border-bottom: none;
+}
+
+.vsModalPrimary {
+  width: 100%;
+  padding: 0.85rem;
+  border: none;
+  border-radius: 10px;
+  background: var(--hh-primary);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+}

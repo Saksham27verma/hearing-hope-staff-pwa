@@ -14,6 +14,8 @@ export async function fetchStaffEnquiryConfig(): Promise<{
   ok: boolean;
   earSide?: FieldOption[];
   trialLocationType?: FieldOption[];
+  hearingTestType?: FieldOption[];
+  staffNames?: string[];
   error?: string;
 }> {
   const user = auth.currentUser;
@@ -26,6 +28,17 @@ export async function fetchStaffEnquiryConfig(): Promise<{
   if (!res.ok) {
     return { ok: false, error: (data as { error?: string }).error || 'Failed to load config' };
   }
-  const d = data as { earSide?: FieldOption[]; trialLocationType?: FieldOption[] };
-  return { ok: true, earSide: d.earSide, trialLocationType: d.trialLocationType };
+  const d = data as {
+    earSide?: FieldOption[];
+    trialLocationType?: FieldOption[];
+    hearingTestType?: FieldOption[];
+    staffNames?: string[];
+  };
+  return {
+    ok: true,
+    earSide: d.earSide,
+    trialLocationType: d.trialLocationType,
+    hearingTestType: d.hearingTestType,
+    staffNames: d.staffNames,
+  };
 }
