@@ -10,12 +10,14 @@ import {
   IoOpenOutline,
   IoCheckmarkCircle,
   IoCloseCircleOutline,
+  IoMedkitOutline,
 } from 'react-icons/io5';
 import { auth, db } from '../firebase';
 import type { Appointment } from '../types';
 import { theme } from '../theme';
 import { useAppointmentsContext } from '../context/AppointmentsContext';
 import { formatDateLong, formatTime, getStartForDisplay } from '../dateUtils';
+import { isEligibleForVisitServicesLogging } from '../utils/appointmentPayable';
 import styles from './AppointmentDetailScreen.module.css';
 
 function getStatusStyle(status?: string) {
@@ -147,6 +149,7 @@ export default function AppointmentDetailScreen() {
   const isScheduled = appointment.status === 'scheduled' || !appointment.status;
   const statusStyle = getStatusStyle(appointment.status);
   const startIso = getStartForDisplay(appointment.start);
+  const showVisitServices = isEligibleForVisitServicesLogging(appointment);
 
   const submitCompleted = async () => {
     if (!appointment.id) return;
@@ -303,6 +306,19 @@ export default function AppointmentDetailScreen() {
 
         {isScheduled ? (
           <div className={styles.actions}>
+            {showVisitServices ? (
+              <button
+                type="button"
+                className={styles.btnServices}
+                disabled={saving}
+                onClick={() =>
+                  navigate(`/app/visit-services/${encodeURIComponent(appointment.id)}`)
+                }
+              >
+                <IoMedkitOutline size={20} />
+                Log visit services
+              </button>
+            ) : null}
             <button
               type="button"
               className={styles.btnComplete}

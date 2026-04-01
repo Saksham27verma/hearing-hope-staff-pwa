@@ -13,7 +13,7 @@ import { useAppointmentsContext } from '../context/AppointmentsContext';
 import type { Appointment } from '../types';
 import { theme } from '../theme';
 import { parseStartToDate, getStartForDisplay, isAppointmentToday, formatTime } from '../dateUtils';
-import { isPayableAppointmentForPayment } from '../utils/appointmentPayable';
+import { isPayableAppointmentForPayment, isEligibleForVisitServicesLogging } from '../utils/appointmentPayable';
 import styles from './AppointmentsScreen.module.css';
 
 type TabFilter = 'all' | 'today' | 'upcoming' | 'completed' | 'cancelled';
@@ -154,6 +154,7 @@ export default function AppointmentsScreen({ onLogout }: Props) {
     const centerLabel = item.centerName || item.centerId || 'Center';
     const startIso = getStartForDisplay(item.start);
     const showLogPayment = activeTab === 'today' && isPayableAppointmentForPayment(item);
+    const showLogVisitServices = activeTab === 'today' && isEligibleForVisitServicesLogging(item);
 
     return (
       <div key={item.id} className={styles.card}>
@@ -224,14 +225,27 @@ export default function AppointmentsScreen({ onLogout }: Props) {
               <IoNavigate size={18} />
             </button>
           ) : null}
-          {showLogPayment ? (
-            <button
-              type="button"
-              className={styles.logPaymentBtn}
-              onClick={() => navigate(`/app/receipt/${encodeURIComponent(item.id)}`)}
-            >
-              Log payment
-            </button>
+          {showLogVisitServices || showLogPayment ? (
+            <div className={styles.logActionsRow}>
+              {showLogVisitServices ? (
+                <button
+                  type="button"
+                  className={`${styles.logServicesBtn} ${!showLogPayment ? styles.logServicesBtnSolo : ''}`}
+                  onClick={() => navigate(`/app/visit-services/${encodeURIComponent(item.id)}`)}
+                >
+                  Services
+                </button>
+              ) : null}
+              {showLogPayment ? (
+                <button
+                  type="button"
+                  className={`${styles.logPaymentBtn} ${!showLogVisitServices ? styles.logPaymentBtnSolo : ''}`}
+                  onClick={() => navigate(`/app/receipt/${encodeURIComponent(item.id)}`)}
+                >
+                  Log payment
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>

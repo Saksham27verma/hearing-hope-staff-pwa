@@ -9,3 +9,9 @@ export function isPayableAppointmentForPayment(a: Appointment): boolean {
   if (s && s !== 'scheduled') return false;
   return true;
 }
+
+/** Same rules as payment + linked enquiry (required to write CRM visits). */
+export function isEligibleForVisitServicesLogging(a: Appointment): boolean {
+  return isPayableAppointmentForPayment(a) && Boolean((a.enquiryId || '').trim());
+}
+

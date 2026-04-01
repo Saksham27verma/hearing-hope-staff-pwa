@@ -198,8 +198,25 @@
   cursor: pointer;
 }
 
+.btnServices {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 2px solid var(--hh-primary);
+  border-radius: var(--hh-r-md);
+  padding: 1rem;
+  min-height: 48px;
+  background: var(--hh-card);
+  color: var(--hh-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .btnComplete:disabled,
-.btnCancel:disabled {
+.btnCancel:disabled,
+.btnServices:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
