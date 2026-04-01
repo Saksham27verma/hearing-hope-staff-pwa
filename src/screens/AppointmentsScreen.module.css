@@ -298,41 +298,12 @@
   cursor: not-allowed;
 }
 
-.logActionsRow {
+.visitDetailsBtn {
   margin-left: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  justify-content: flex-end;
-  flex: 1;
-  min-width: 0;
-}
-
-.logServicesBtn {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0 0.75rem;
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--hh-primary);
-  background: var(--hh-card);
-  color: var(--hh-primary);
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.logServicesBtnSolo {
-  margin-left: auto;
-}
-
-.logPaymentBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0 0.75rem;
+  padding: 0 0.85rem;
   height: 44px;
   border-radius: 12px;
   border: none;
@@ -341,10 +312,6 @@
   font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
-}
-
-.logPaymentBtnSolo {
-  margin-left: auto;
 }
 
 .centered {

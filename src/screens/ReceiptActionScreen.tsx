@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
-import { IoArrowBack } from 'react-icons/io5';
+import { IoArrowBack, IoTrashOutline, IoAddCircleOutline } from 'react-icons/io5';
 import { auth, db } from '../firebase';
 import type { Appointment } from '../types';
 import { useAppointmentsContext } from '../context/AppointmentsContext';
-import { isPayableAppointmentForPayment } from '../utils/appointmentPayable';
+import { isPayableAppointmentForPayment, isEligibleForVisitServicesLogging } from '../utils/appointmentPayable';
+import { submitLogVisitServices, type VisitServicesPayload } from '../api/logVisitServices';
 import { getStartForDisplay, formatTime } from '../dateUtils';
 import { submitCollectPayment, type PaymentMode, type ReceiptType } from '../api/collectPayment';
 import {
@@ -36,11 +37,17 @@ const FALLBACK_TRIAL_LOC: FieldOption[] = [
   { optionValue: 'home', optionLabel: 'Home Trial', sortOrder: 20 },
 ];
 
+type HtEntry = { id: string; testType: string; price: string };
+
+function newHtId() {
+  return `ht-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 export default function ReceiptActionScreen() {
   const { appointmentId: appointmentIdParam } = useParams<{ appointmentId: string }>();
   const appointmentId = appointmentIdParam ? decodeURIComponent(appointmentIdParam) : '';
   const navigate = useNavigate();
-  const { appointments } = useAppointmentsContext();
+  const { appointments, isOnline } = useAppointmentsContext();
   const uid = auth.currentUser?.uid;
 
   const [resolved, setResolved] = useState<Appointment | null | undefined>(undefined);
@@ -49,7 +56,30 @@ export default function ReceiptActionScreen() {
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('cash');
   const [receiptType, setReceiptType] = useState<ReceiptType>('booking');
   const [submitting, setSubmitting] = useState(false);
+  const [savingVisitServices, setSavingVisitServices] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  const [hearingTest, setHearingTest] = useState(false);
+  const [htEntries, setHtEntries] = useState<HtEntry[]>([{ id: newHtId(), testType: '', price: '' }]);
+  const [testDoneBy, setTestDoneBy] = useState('');
+  const [testResults, setTestResults] = useState('');
+  const [recommendations, setRecommendations] = useState('');
+  const [accessory, setAccessory] = useState(false);
+  const [accessoryName, setAccessoryName] = useState('');
+  const [accessoryDetails, setAccessoryDetails] = useState('');
+  const [accessoryFOC, setAccessoryFOC] = useState(false);
+  const [accessoryAmount, setAccessoryAmount] = useState('');
+  const [accessoryQuantity, setAccessoryQuantity] = useState('1');
+  const [programming, setProgramming] = useState(false);
+  const [programmingReason, setProgrammingReason] = useState('');
+  const [programmingAmount, setProgrammingAmount] = useState('');
+  const [programmingDoneBy, setProgrammingDoneBy] = useState('');
+  const [hearingAidPurchaseDate, setHearingAidPurchaseDate] = useState('');
+  const [hearingAidName, setHearingAidName] = useState('');
+  const [underWarranty, setUnderWarranty] = useState(false);
+  const [warranty, setWarranty] = useState('');
+  const [counselling, setCounselling] = useState(false);
+  const [counsellingNotes, setCounsellingNotes] = useState('');
   const [templateLabels, setTemplateLabels] = useState<StaffReceiptTemplateLabels>({});
 
   const [earOptions, setEarOptions] = useState<FieldOption[]>(FALLBACK_EAR);
@@ -228,7 +258,7 @@ export default function ReceiptActionScreen() {
 
   useEffect(() => {
     if (resolved === null && !loading) {
-      setErrorBanner('This appointment cannot be used for payment logging.');
+      setErrorBanner('This appointment cannot be used for visit details (payment / services).');
     }
   }, [resolved, loading]);
 
@@ -423,6 +453,102 @@ export default function ReceiptActionScreen() {
     }
   };
 
+  const buildVisitServicesPayload = (): { ok: true; services: VisitServicesPayload } | { ok: false; message: string } => {
+    const services: VisitServicesPayload = {};
+    if (hearingTest) {
+      const entries = htEntries
+        .map((e) => ({
+          id: e.id,
+          testType: e.testType.trim(),
+          price: Math.max(0, parseFloat(e.price) || 0),
+        }))
+        .filter((e) => e.testType);
+      if (entries.length === 0) {
+        return { ok: false, message: 'Add at least one hearing test with a test type.' };
+      }
+      services.hearingTest = {
+        hearingTestEntries: entries,
+        testDoneBy: testDoneBy.trim() || undefined,
+        testResults: testResults.trim() || undefined,
+        recommendations: recommendations.trim() || undefined,
+      };
+    }
+    if (accessory) {
+      const name = accessoryName.trim();
+      if (!name) {
+        return { ok: false, message: 'Accessory name is required.' };
+      }
+      services.accessory = {
+        accessoryName: name,
+        accessoryDetails: accessoryDetails.trim() || undefined,
+        accessoryFOC,
+        accessoryAmount:
+          accessoryAmount.trim() !== '' ? Math.max(0, parseFloat(accessoryAmount) || 0) : undefined,
+        accessoryQuantity:
+          accessoryQuantity.trim() !== '' ? Math.max(1, Math.floor(parseFloat(accessoryQuantity) || 1)) : undefined,
+      };
+    }
+    if (programming) {
+      services.programming = {
+        programmingReason: programmingReason.trim() || undefined,
+        programmingAmount:
+          programmingAmount.trim() !== '' ? Math.max(0, parseFloat(programmingAmount) || 0) : undefined,
+        programmingDoneBy: programmingDoneBy.trim() || undefined,
+        hearingAidPurchaseDate: hearingAidPurchaseDate.trim() || undefined,
+        hearingAidName: hearingAidName.trim() || undefined,
+        underWarranty,
+        warranty: warranty.trim() || undefined,
+      };
+    }
+    if (counselling) {
+      services.counselling = { notes: counsellingNotes.trim() || undefined };
+    }
+    if (!services.hearingTest && !services.accessory && !services.programming && !services.counselling) {
+      return { ok: false, message: 'Turn on at least one service, or skip this section.' };
+    }
+    return { ok: true, services };
+  };
+
+  const handleSaveVisitServices = async () => {
+    if (!resolved?.id) return;
+    if (!isOnline) {
+      setErrorBanner('Visit logging requires an internet connection.');
+      return;
+    }
+    if (!resolved.enquiryId?.trim()) {
+      setErrorBanner('Link this appointment to an enquiry in CRM to save visit services.');
+      return;
+    }
+    if (!isEligibleForVisitServicesLogging(resolved)) {
+      setErrorBanner('Visit services cannot be saved for this appointment.');
+      return;
+    }
+    const built = buildVisitServicesPayload();
+    if (!built.ok) {
+      setErrorBanner(built.message);
+      return;
+    }
+    setSavingVisitServices(true);
+    setErrorBanner(null);
+    try {
+      const r = await submitLogVisitServices({
+        appointmentId: resolved.id,
+        services: built.services,
+      });
+      if (!r.ok) {
+        setErrorBanner(r.error || 'Failed to save');
+        return;
+      }
+      alert('Visit services were logged to the enquiry.');
+    } catch (e: unknown) {
+      setErrorBanner(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setSavingVisitServices(false);
+    }
+  };
+
+  const visitFormBusy = submitting || savingVisitServices;
+
   if (loading || resolved === undefined) {
     return (
       <div className={styles.container}>
@@ -440,7 +566,7 @@ export default function ReceiptActionScreen() {
           <button type="button" className={styles.backBtn} onClick={() => navigate(-1)} aria-label="Back">
             <IoArrowBack size={22} />
           </button>
-          <h1 className={styles.title}>Log payment</h1>
+          <h1 className={styles.title}>Visit details</h1>
         </header>
         {errorBanner ? <p className={styles.errorText}>{errorBanner}</p> : null}
       </div>
@@ -449,6 +575,8 @@ export default function ReceiptActionScreen() {
 
   const typeLabel = resolved.type === 'home' ? 'Home visit' : 'Center';
   const startIso = getStartForDisplay(resolved.start);
+  const showVisitServicesForm =
+    !!(resolved.enquiryId || '').trim() && isEligibleForVisitServicesLogging(resolved);
 
   return (
     <div className={styles.container}>
@@ -456,7 +584,7 @@ export default function ReceiptActionScreen() {
         <button type="button" className={styles.backBtn} onClick={() => navigate(-1)} aria-label="Back">
           <IoArrowBack size={22} />
         </button>
-        <h1 className={styles.title}>Log payment</h1>
+        <h1 className={styles.title}>Visit details</h1>
       </header>
 
       <form className={styles.form} onSubmit={handleSubmit}>
@@ -470,6 +598,181 @@ export default function ReceiptActionScreen() {
           <p className={styles.meta}>Time: {formatTime(startIso)}</p>
         </div>
 
+        <h2 className={styles.visitBlockTitle}>Visit services (CRM)</h2>
+        <p className={styles.visitHint}>
+          Log tests, accessories, programming, and counselling. Requires internet. Link an enquiry in CRM if missing.
+        </p>
+        {!resolved.enquiryId?.trim() ? (
+          <p className={styles.visitMuted}>No enquiry linked — connect this appointment in CRM to save visit services.</p>
+        ) : !showVisitServicesForm ? (
+          <p className={styles.visitMuted}>Visit services are not available for this appointment.</p>
+        ) : (
+          <>
+            <section className={styles.card}>
+              <div className={styles.vsRowBetween}>
+                <span className={styles.vsSectionTitle}>Hearing test</span>
+                <input
+                  type="checkbox"
+                  checked={hearingTest}
+                  onChange={(e) => setHearingTest(e.target.checked)}
+                  disabled={visitFormBusy}
+                  aria-label="Hearing test"
+                />
+              </div>
+              {hearingTest ? (
+                <>
+                  {htEntries.map((row) => (
+                    <div key={row.id} className={styles.vsHtRow}>
+                      <input
+                        className={styles.vsInput}
+                        placeholder="Test type"
+                        value={row.testType}
+                        disabled={visitFormBusy}
+                        onChange={(e) => {
+                          const next = [...htEntries];
+                          const idx = next.findIndex((r) => r.id === row.id);
+                          if (idx >= 0) next[idx] = { ...row, testType: e.target.value };
+                          setHtEntries(next);
+                        }}
+                      />
+                      <input
+                        className={`${styles.vsInput} ${styles.vsPriceInput}`}
+                        placeholder="₹"
+                        inputMode="decimal"
+                        value={row.price}
+                        disabled={visitFormBusy}
+                        onChange={(e) => {
+                          const next = [...htEntries];
+                          const idx = next.findIndex((r) => r.id === row.id);
+                          if (idx >= 0) next[idx] = { ...row, price: e.target.value };
+                          setHtEntries(next);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className={styles.vsTrashBtn}
+                        disabled={htEntries.length <= 1 || visitFormBusy}
+                        onClick={() => setHtEntries((prev) => prev.filter((r) => r.id !== row.id))}
+                        aria-label="Remove row"
+                      >
+                        <IoTrashOutline size={22} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className={styles.vsAddRow}
+                    disabled={visitFormBusy}
+                    onClick={() => setHtEntries((prev) => [...prev, { id: newHtId(), testType: '', price: '' }])}
+                  >
+                    <IoAddCircleOutline size={18} />
+                    Add test line
+                  </button>
+                  <VsField label="Test done by" value={testDoneBy} onChange={setTestDoneBy} disabled={visitFormBusy} />
+                  <VsField label="Test results" value={testResults} onChange={setTestResults} multiline disabled={visitFormBusy} />
+                  <VsField
+                    label="Recommendations"
+                    value={recommendations}
+                    onChange={setRecommendations}
+                    multiline
+                    disabled={visitFormBusy}
+                  />
+                </>
+              ) : null}
+            </section>
+
+            <section className={styles.card}>
+              <div className={styles.vsRowBetween}>
+                <span className={styles.vsSectionTitle}>Accessory</span>
+                <input
+                  type="checkbox"
+                  checked={accessory}
+                  onChange={(e) => setAccessory(e.target.checked)}
+                  disabled={visitFormBusy}
+                  aria-label="Accessory"
+                />
+              </div>
+              {accessory ? (
+                <>
+                  <VsField label="Accessory name *" value={accessoryName} onChange={setAccessoryName} disabled={visitFormBusy} />
+                  <VsField label="Details" value={accessoryDetails} onChange={setAccessoryDetails} multiline disabled={visitFormBusy} />
+                  <div className={styles.vsRowBetween}>
+                    <span className={styles.vsSectionTitle}>Free of charge</span>
+                    <input
+                      type="checkbox"
+                      checked={accessoryFOC}
+                      onChange={(e) => setAccessoryFOC(e.target.checked)}
+                      disabled={visitFormBusy}
+                    />
+                  </div>
+                  <VsField label="Amount (₹)" value={accessoryAmount} onChange={setAccessoryAmount} inputMode="decimal" disabled={visitFormBusy} />
+                  <VsField label="Quantity" value={accessoryQuantity} onChange={setAccessoryQuantity} inputMode="numeric" disabled={visitFormBusy} />
+                </>
+              ) : null}
+            </section>
+
+            <section className={styles.card}>
+              <div className={styles.vsRowBetween}>
+                <span className={styles.vsSectionTitle}>Programming</span>
+                <input
+                  type="checkbox"
+                  checked={programming}
+                  onChange={(e) => setProgramming(e.target.checked)}
+                  disabled={visitFormBusy}
+                  aria-label="Programming"
+                />
+              </div>
+              {programming ? (
+                <>
+                  <VsField label="Reason" value={programmingReason} onChange={setProgrammingReason} multiline disabled={visitFormBusy} />
+                  <VsField label="Amount (₹)" value={programmingAmount} onChange={setProgrammingAmount} inputMode="decimal" disabled={visitFormBusy} />
+                  <VsField label="Done by" value={programmingDoneBy} onChange={setProgrammingDoneBy} disabled={visitFormBusy} />
+                  <VsField label="HA purchase date" value={hearingAidPurchaseDate} onChange={setHearingAidPurchaseDate} disabled={visitFormBusy} />
+                  <VsField label="Hearing aid name" value={hearingAidName} onChange={setHearingAidName} disabled={visitFormBusy} />
+                  <div className={styles.vsRowBetween}>
+                    <span className={styles.vsSectionTitle}>Under warranty</span>
+                    <input
+                      type="checkbox"
+                      checked={underWarranty}
+                      onChange={(e) => setUnderWarranty(e.target.checked)}
+                      disabled={visitFormBusy}
+                    />
+                  </div>
+                  <VsField label="Warranty" value={warranty} onChange={setWarranty} disabled={visitFormBusy} />
+                </>
+              ) : null}
+            </section>
+
+            <section className={styles.card}>
+              <div className={styles.vsRowBetween}>
+                <span className={styles.vsSectionTitle}>Counselling</span>
+                <input
+                  type="checkbox"
+                  checked={counselling}
+                  onChange={(e) => setCounselling(e.target.checked)}
+                  disabled={visitFormBusy}
+                  aria-label="Counselling"
+                />
+              </div>
+              {counselling ? (
+                <VsField label="Notes" value={counsellingNotes} onChange={setCounsellingNotes} multiline disabled={visitFormBusy} />
+              ) : null}
+            </section>
+
+            <button
+              type="button"
+              className={styles.visitSaveOutline}
+              disabled={visitFormBusy}
+              onClick={() => void handleSaveVisitServices()}
+            >
+              {savingVisitServices ? 'Saving…' : 'Save visit services'}
+            </button>
+          </>
+        )}
+
+        <h2 className={styles.visitBlockTitle}>Payment & receipt</h2>
+        <p className={styles.visitHint}>Collect payment for trial, booking, or sale — request goes to admin for verification.</p>
+
         <label className={styles.label} htmlFor="amount">
           Payment collected today (₹)
         </label>
@@ -480,7 +783,7 @@ export default function ReceiptActionScreen() {
           placeholder="0"
           value={amount}
           onChange={(ev) => setAmount(ev.target.value)}
-          disabled={submitting}
+          disabled={visitFormBusy}
         />
 
         <p className={styles.label}>Payment mode</p>
@@ -491,7 +794,7 @@ export default function ReceiptActionScreen() {
               type="button"
               className={`${styles.chip} ${paymentMode === m ? styles.chipActive : ''}`}
               onClick={() => setPaymentMode(m)}
-              disabled={submitting}
+              disabled={visitFormBusy}
             >
               {m.toUpperCase()}
             </button>
@@ -506,7 +809,7 @@ export default function ReceiptActionScreen() {
               type="button"
               className={`${styles.chip} ${receiptType === t ? styles.chipActive : ''}`}
               onClick={() => setReceiptType(t)}
-              disabled={submitting}
+              disabled={visitFormBusy}
             >
               {t}
             </button>
@@ -741,10 +1044,49 @@ export default function ReceiptActionScreen() {
           </div>
         ) : null}
 
-        <button type="submit" className={styles.submit} disabled={submitting}>
-          {submitting ? 'Sending…' : 'Send to admin'}
+        <button type="submit" className={styles.submit} disabled={visitFormBusy}>
+          {submitting ? 'Sending…' : 'Send payment to admin'}
         </button>
       </form>
+    </div>
+  );
+}
+
+function VsField({
+  label,
+  value,
+  onChange,
+  multiline,
+  inputMode,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  multiline?: boolean;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  disabled?: boolean;
+}) {
+  return (
+    <div className={styles.field}>
+      <label className={styles.vsFieldLabel}>{label}</label>
+      {multiline ? (
+        <textarea
+          className={`${styles.input} ${styles.vsTextarea}`}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          rows={4}
+        />
+      ) : (
+        <input
+          className={styles.input}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          inputMode={inputMode}
+          disabled={disabled}
+        />
+      )}
     </div>
   );
 }

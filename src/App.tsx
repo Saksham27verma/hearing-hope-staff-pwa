@@ -10,7 +10,6 @@ import LoginScreen from './screens/LoginScreen';
 import AppointmentsScreen from './screens/AppointmentsScreen';
 import AppointmentDetailScreen from './screens/AppointmentDetailScreen';
 import ReceiptActionScreen from './screens/ReceiptActionScreen';
-import VisitServicesScreen from './screens/VisitServicesScreen';
 
 function StaffLayout({ user, onLogout }: { user: User; onLogout: () => void }) {
   return (
@@ -19,7 +18,6 @@ function StaffLayout({ user, onLogout }: { user: User; onLogout: () => void }) {
         <Route index element={<AppointmentsScreen onLogout={onLogout} />} />
         <Route path="visit/:id" element={<AppointmentDetailScreen />} />
         <Route path="receipt/:appointmentId" element={<ReceiptActionScreen />} />
-        <Route path="visit-services/:appointmentId" element={<VisitServicesScreen />} />
       </Routes>
     </AppointmentsProvider>
   );
