@@ -271,6 +271,10 @@ export default function ReceiptActionScreen() {
     }
   }, [receiptType, trialLoc, loadInventory]);
 
+  useEffect(() => {
+    if (receiptType !== 'invoice') setInvModalLineId(null);
+  }, [receiptType]);
+
   const loadCatalog = useCallback(async (q: string) => {
     setCatalogLoading(true);
     try {
@@ -335,6 +339,31 @@ export default function ReceiptActionScreen() {
     if (receiptType !== 'invoice') return;
     if (suggestedInvoiceTotal > 0) setAmount(String(suggestedInvoiceTotal));
   }, [receiptType, suggestedInvoiceTotal]);
+
+  /** One empty line by default so staff can pick serial immediately (multi-line invoice). */
+  useEffect(() => {
+    if (receiptType !== 'invoice') return;
+    setSaleLines((prev) => {
+      if (prev.length > 0) return prev;
+      return [
+        {
+          id: newSaleLineId(),
+          inv: null,
+          sellingPrice: '',
+          gstPercent: '18',
+          qty: '1',
+          warranty: '',
+        },
+      ];
+    });
+  }, [receiptType]);
+
+  /** Pre-select the only empty line so the inventory list applies the correct filter (PWA). */
+  useEffect(() => {
+    if (receiptType !== 'invoice') return;
+    if (saleLines.length !== 1 || saleLines[0].inv) return;
+    setInvModalLineId((cur) => cur ?? saleLines[0].id);
+  }, [receiptType, saleLines]);
 
   const fromCache = useMemo(
     () => appointments.find((a) => a.id === appointmentId) || null,
