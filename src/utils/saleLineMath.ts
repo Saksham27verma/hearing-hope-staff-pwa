@@ -15,6 +15,28 @@ export const roundInrRupee = (n: number) => Math.round(Number(n) || 0);
 export const roundDiscountPercent = (value: number) =>
   Math.round(Math.max(0, Math.min(100, Number(value) || 0)) * 100) / 100;
 
+/** Matches CRM `products` master: 0% when GST exempt, else catalog % (default 18). */
+export function effectiveGstPercentFromCatalogProduct(p: {
+  gstApplicable?: boolean;
+  gstPercentage?: number;
+}): number {
+  if (p.gstApplicable === false) return 0;
+  const g = Number(p.gstPercentage);
+  if (Number.isFinite(g) && g >= 0) return g;
+  return 18;
+}
+
+/** Uses `gstPercent` / `gstApplicable` from staff available-inventory API. */
+export function effectiveGstPercentFromInventoryRow(inv: {
+  gstPercent?: number;
+  gstApplicable?: boolean;
+}): number {
+  if (inv.gstApplicable === false) return 0;
+  const g = Number(inv.gstPercent);
+  if (Number.isFinite(g) && g >= 0) return g;
+  return 18;
+}
+
 export function lineInclusiveTotal(
   mrp: number,
   sellingPreTax: number,

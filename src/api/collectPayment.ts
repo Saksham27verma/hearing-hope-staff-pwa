@@ -17,6 +17,9 @@ export type CollectPaymentBookingDetails = {
 
 export type CollectPaymentTrialDetails = {
   catalogProductId: string;
+  secondCatalogProductId?: string;
+  secondHearingAidPrice?: number;
+  secondTrialSerialNumber?: string;
   trialLocationType: 'in_office' | 'home';
   whichEar: 'left' | 'right' | 'both';
   hearingAidPrice: number;

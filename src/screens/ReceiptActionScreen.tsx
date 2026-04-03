@@ -20,6 +20,8 @@ import { fetchStaffEnquiryConfig, type FieldOption } from '../api/staffEnquiryCo
 import { fetchStaffProductsCatalog, type CatalogProduct } from '../api/staffProductsCatalog';
 import {
   derivedDiscountPercentFromMrpSelling,
+  effectiveGstPercentFromCatalogProduct,
+  effectiveGstPercentFromInventoryRow,
   HEARING_AID_SALE_WARRANTY_OPTIONS,
   lineInclusiveTotal,
   roundInrRupee,
@@ -152,6 +154,9 @@ export default function ReceiptActionScreen() {
   const [trialSerial, setTrialSerial] = useState('');
   const [trialDeposit, setTrialDeposit] = useState('');
   const [trialNotes, setTrialNotes] = useState('');
+  const [trialProduct2, setTrialProduct2] = useState<CatalogProduct | null>(null);
+  const [trialMrp2, setTrialMrp2] = useState('');
+  const [trialSerial2, setTrialSerial2] = useState('');
 
   const [inventoryItems, setInventoryItems] = useState<StaffInventoryRow[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
@@ -300,9 +305,6 @@ export default function ReceiptActionScreen() {
 
   const filteredInv = useMemo(() => {
     let base = inventoryItems;
-    if (receiptType === 'trial' && trialLoc === 'home' && trialProduct) {
-      base = base.filter((it) => it.productId === trialProduct.id);
-    }
     if (receiptType === 'invoice' && invModalLineId != null) {
       const taken = new Set(
         saleLines
@@ -314,14 +316,48 @@ export default function ReceiptActionScreen() {
     }
     const q = invSearch.trim().toLowerCase();
     if (!q) return base.slice(0, 100);
-    return base.filter(
-      (it) =>
-        it.name.toLowerCase().includes(q) ||
-        it.company.toLowerCase().includes(q) ||
-        it.type.toLowerCase().includes(q) ||
-        it.serialNumber.toLowerCase().includes(q)
-    );
-  }, [inventoryItems, invSearch, receiptType, trialLoc, trialProduct, saleLines, invModalLineId]);
+    return base
+      .filter(
+        (it) =>
+          it.name.toLowerCase().includes(q) ||
+          it.company.toLowerCase().includes(q) ||
+          it.type.toLowerCase().includes(q) ||
+          it.serialNumber.toLowerCase().includes(q)
+      )
+      .slice(0, 100);
+  }, [inventoryItems, invSearch, receiptType, saleLines, invModalLineId]);
+
+  const filterInvBySearch = (rows: StaffInventoryRow[]) => {
+    const q = invSearch.trim().toLowerCase();
+    if (!q) return rows.slice(0, 100);
+    return rows
+      .filter(
+        (it) =>
+          it.name.toLowerCase().includes(q) ||
+          it.company.toLowerCase().includes(q) ||
+          it.type.toLowerCase().includes(q) ||
+          it.serialNumber.toLowerCase().includes(q)
+      )
+      .slice(0, 100);
+  };
+
+  const trialHomeInv1 = useMemo(() => {
+    if (receiptType !== 'trial' || trialLoc !== 'home' || !trialProduct) return [];
+    let base = inventoryItems.filter((it) => it.productId === trialProduct.id);
+    if (trialProduct2 && trialProduct.id === trialProduct2.id && trialSerial2.trim()) {
+      base = base.filter((it) => it.serialNumber !== trialSerial2.trim());
+    }
+    return filterInvBySearch(base);
+  }, [inventoryItems, invSearch, receiptType, trialLoc, trialProduct, trialProduct2, trialSerial2]);
+
+  const trialHomeInv2 = useMemo(() => {
+    if (receiptType !== 'trial' || trialLoc !== 'home' || !trialProduct2) return [];
+    let base = inventoryItems.filter((it) => it.productId === trialProduct2.id);
+    if (trialProduct && trialProduct.id === trialProduct2.id && trialSerial.trim()) {
+      base = base.filter((it) => it.serialNumber !== trialSerial.trim());
+    }
+    return filterInvBySearch(base);
+  }, [inventoryItems, invSearch, receiptType, trialLoc, trialProduct, trialProduct2, trialSerial]);
 
   const suggestedInvoiceTotal = useMemo(() => {
     let sum = 0;
@@ -442,11 +478,24 @@ export default function ReceiptActionScreen() {
   }, [trialProduct]);
 
   useEffect(() => {
+    setTrialProduct2(null);
+    setTrialMrp2('');
+    setTrialSerial2('');
+  }, [trialProduct?.id]);
+
+  useEffect(() => {
+    if (trialProduct2) {
+      setTrialMrp2(String(trialProduct2.mrp ?? 0));
+    }
+  }, [trialProduct2]);
+
+  useEffect(() => {
     if (trialLoc === 'in_office') {
       setTrialDuration('0');
       setTrialStart('');
       setTrialEnd('');
       setTrialSerial('');
+      setTrialSerial2('');
       setTrialDeposit('0');
     } else {
       setTrialDuration((d) => (d === '0' ? '7' : d));
@@ -514,8 +563,19 @@ export default function ReceiptActionScreen() {
           return;
         }
         if (!trialSerial.trim()) {
-          setErrorBanner('Pick an inventory serial for home trial.');
+          setErrorBanner('Pick an inventory serial for home trial (device 1).');
           return;
+        }
+        if (trialProduct2) {
+          if (!trialSerial2.trim()) {
+            setErrorBanner('Pick the second inventory serial for home trial.');
+            return;
+          }
+          const m2 = Number(trialMrp2);
+          if (!Number.isFinite(m2) || m2 < 0) {
+            setErrorBanner('Enter MRP for device 2.');
+            return;
+          }
         }
         const dep = Number(trialDeposit);
         if (!Number.isFinite(dep) || dep < 0) {
@@ -573,6 +633,13 @@ export default function ReceiptActionScreen() {
             ? {
                 trial: {
                   catalogProductId: trialProduct!.id,
+                  ...(trialProduct2
+                    ? {
+                        secondCatalogProductId: trialProduct2.id,
+                        secondHearingAidPrice: Number(trialMrp2),
+                        secondTrialSerialNumber: trialLoc === 'home' ? trialSerial2.trim() : '',
+                      }
+                    : {}),
                   trialLocationType: trialLoc,
                   whichEar: trialEar as 'left' | 'right' | 'both',
                   hearingAidPrice: Number(trialMrp),
@@ -1179,6 +1246,12 @@ export default function ReceiptActionScreen() {
             />
             <label className={styles.label}>Quantity</label>
             <input className={styles.input} inputMode="numeric" value={bookingQty} onChange={(e) => setBookingQty(e.target.value)} />
+            {bookingProduct ? (
+              <p className={styles.meta}>
+                GST % (from catalog): {effectiveGstPercentFromCatalogProduct(bookingProduct)}%
+                {bookingProduct.gstApplicable === false ? ' · GST exempt' : ''}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -1193,6 +1266,7 @@ export default function ReceiptActionScreen() {
               onChange={(e) => setCatalogSearch(e.target.value)}
             />
             {catalogLoading ? <p className={styles.meta}>Loading…</p> : null}
+            <p className={styles.label}>Device 1 (catalog)</p>
             <div className={styles.invList}>
               {catalogItems.map((it) => (
                 <button
@@ -1208,6 +1282,53 @@ export default function ReceiptActionScreen() {
                 </button>
               ))}
             </div>
+            {trialProduct ? (
+              <p className={styles.meta}>
+                GST % (device 1, from catalog): {effectiveGstPercentFromCatalogProduct(trialProduct)}%
+                {trialProduct.gstApplicable === false ? ' · GST exempt' : ''}
+              </p>
+            ) : null}
+            {trialProduct && !trialProduct2 ? (
+              <>
+                <p className={styles.label}>Device 2 (optional — max 2 devices)</p>
+                <div className={styles.invList}>
+                  {catalogItems.map((it) => (
+                    <button
+                      key={`d2-${it.id}`}
+                      type="button"
+                      className={`${styles.invRow} ${trialProduct2?.id === it.id ? styles.invRowActive : ''}`}
+                      onClick={() => setTrialProduct2(it)}
+                    >
+                      <span className={styles.invName}>{it.name}</span>
+                      <span className={styles.invSub}>
+                        {it.company} · {it.type} · ₹{it.mrp ?? 0}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+            {trialProduct2 ? (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <p className={styles.label} style={{ marginBottom: 0 }}>
+                    Device 2
+                  </p>
+                  <button type="button" className={styles.vsModalClose} onClick={() => setTrialProduct2(null)}>
+                    Remove
+                  </button>
+                </div>
+                <p className={styles.meta}>
+                  {trialProduct2.company} · {trialProduct2.name} ({trialProduct2.type})
+                </p>
+                <p className={styles.meta}>
+                  GST % (device 2, from catalog): {effectiveGstPercentFromCatalogProduct(trialProduct2)}%
+                  {trialProduct2.gstApplicable === false ? ' · GST exempt' : ''}
+                </p>
+                <label className={styles.label}>MRP device 2 (per unit) ₹</label>
+                <input className={styles.input} inputMode="decimal" value={trialMrp2} onChange={(e) => setTrialMrp2(e.target.value)} />
+              </div>
+            ) : null}
             <p className={styles.label}>Trial type</p>
             <div className={styles.chips}>
               {trialLocOptions.map((o) => {
@@ -1247,7 +1368,7 @@ export default function ReceiptActionScreen() {
                 <input className={styles.input} value={trialStart} onChange={(e) => setTrialStart(e.target.value)} />
                 <label className={styles.label}>Trial end (YYYY-MM-DD)</label>
                 <input className={styles.input} value={trialEnd} onChange={(e) => setTrialEnd(e.target.value)} />
-                <label className={styles.label}>Inventory serial (home trial)</label>
+                <label className={styles.label}>Inventory serial — device 1</label>
                 {inventoryLoading ? <p className={styles.meta}>Loading inventory…</p> : null}
                 <input
                   className={styles.input}
@@ -1256,7 +1377,7 @@ export default function ReceiptActionScreen() {
                   onChange={(e) => setInvSearch(e.target.value)}
                 />
                 <div className={styles.invList}>
-                  {filteredInv.map((it) => (
+                  {trialHomeInv1.map((it) => (
                     <button
                       key={it.lineId}
                       type="button"
@@ -1270,6 +1391,26 @@ export default function ReceiptActionScreen() {
                     </button>
                   ))}
                 </div>
+                {trialProduct2 ? (
+                  <>
+                    <label className={styles.label}>Inventory serial — device 2</label>
+                    <div className={styles.invList}>
+                      {trialHomeInv2.map((it) => (
+                        <button
+                          key={`t2-${it.lineId}`}
+                          type="button"
+                          className={`${styles.invRow} ${trialSerial2 === it.serialNumber ? styles.invRowActive : ''}`}
+                          onClick={() => setTrialSerial2(it.serialNumber)}
+                        >
+                          <span className={styles.invName}>{it.name}</span>
+                          <span className={styles.invSub}>
+                            {it.company} · {it.type} · SN {it.serialNumber} · ₹{it.mrp}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
                 <label className={styles.label}>Security deposit ₹</label>
                 <input className={styles.input} inputMode="decimal" value={trialDeposit} onChange={(e) => setTrialDeposit(e.target.value)} />
               </>
@@ -1344,11 +1485,13 @@ export default function ReceiptActionScreen() {
                           )
                         }
                       />
-                      <label className={styles.label}>GST %</label>
+                      <label className={styles.label}>GST % (from product when serial selected)</label>
                       <input
                         className={styles.input}
                         inputMode="decimal"
                         value={line.gstPercent}
+                        readOnly={!!inv}
+                        aria-readonly={!!inv}
                         onChange={(e) =>
                           setSaleLines((prev) =>
                             prev.map((l) => (l.id === line.id ? { ...l, gstPercent: e.target.value } : l))
@@ -1454,7 +1597,7 @@ export default function ReceiptActionScreen() {
                               ...l,
                               inv: it,
                               sellingPrice: String(it.mrp ?? 0),
-                              gstPercent: '18',
+                              gstPercent: String(effectiveGstPercentFromInventoryRow(it)),
                               qty: '1',
                             }
                           : l

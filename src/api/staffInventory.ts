@@ -14,6 +14,8 @@ export type StaffInventoryRow = {
   dealerPrice: number;
   serialNumber: string;
   hasSerialNumber: boolean;
+  gstApplicable?: boolean;
+  gstPercent?: number;
 };
 
 export async function fetchAvailableInventory(): Promise<{ ok: boolean; items?: StaffInventoryRow[]; error?: string }> {
