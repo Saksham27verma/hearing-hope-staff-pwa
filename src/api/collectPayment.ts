@@ -28,7 +28,7 @@ export type CollectPaymentTrialDetails = {
   trialNotes: string;
 };
 
-export type CollectPaymentSaleDetails = {
+export type CollectPaymentSaleLine = {
   productId: string;
   name: string;
   company?: string;
@@ -38,7 +38,12 @@ export type CollectPaymentSaleDetails = {
   discountPercent: number;
   gstPercent: number;
   quantity: number;
+  warranty?: string;
+};
+
+export type CollectPaymentSaleDetails = {
   whichEar: 'left' | 'right' | 'both';
+  products: CollectPaymentSaleLine[];
 };
 
 export type CollectPaymentDetails = {

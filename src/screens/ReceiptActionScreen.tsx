@@ -18,6 +18,12 @@ import {
 import { fetchAvailableInventory, type StaffInventoryRow } from '../api/staffInventory';
 import { fetchStaffEnquiryConfig, type FieldOption } from '../api/staffEnquiryConfig';
 import { fetchStaffProductsCatalog, type CatalogProduct } from '../api/staffProductsCatalog';
+import {
+  derivedDiscountPercentFromMrpSelling,
+  HEARING_AID_SALE_WARRANTY_OPTIONS,
+  lineInclusiveTotal,
+  roundInrRupee,
+} from '../utils/saleLineMath';
 import styles from './ReceiptActionScreen.module.css';
 
 function toYmd(d: Date): string {
@@ -48,6 +54,19 @@ type HtEntry = { id: string; testType: string; price: string; testTypeCustom?: b
 
 function newHtId() {
   return `ht-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+type SaleLineDraft = {
+  id: string;
+  inv: StaffInventoryRow | null;
+  sellingPrice: string;
+  gstPercent: string;
+  qty: string;
+  warranty: string;
+};
+
+function newSaleLineId() {
+  return `sl-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export default function ReceiptActionScreen() {
@@ -137,12 +156,10 @@ export default function ReceiptActionScreen() {
   const [inventoryItems, setInventoryItems] = useState<StaffInventoryRow[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [invSearch, setInvSearch] = useState('');
-  const [selectedInv, setSelectedInv] = useState<StaffInventoryRow | null>(null);
+  /** Which sale line is selecting inventory (`null` = not in invoice pick mode). */
+  const [invModalLineId, setInvModalLineId] = useState<string | null>(null);
+  const [saleLines, setSaleLines] = useState<SaleLineDraft[]>([]);
   const [saleEar, setSaleEar] = useState('both');
-  const [saleSelling, setSaleSelling] = useState('');
-  const [saleDiscount, setSaleDiscount] = useState('0');
-  const [saleGst, setSaleGst] = useState('18');
-  const [saleQty, setSaleQty] = useState('1');
 
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogItems, setCatalogItems] = useState<CatalogProduct[]>([]);
@@ -282,6 +299,15 @@ export default function ReceiptActionScreen() {
     if (receiptType === 'trial' && trialLoc === 'home' && trialProduct) {
       base = base.filter((it) => it.productId === trialProduct.id);
     }
+    if (receiptType === 'invoice' && invModalLineId != null) {
+      const taken = new Set(
+        saleLines
+          .filter((l) => l.id !== invModalLineId)
+          .filter((l) => l.inv)
+          .map((l) => `${l.inv!.productId}::${l.inv!.serialNumber}`)
+      );
+      base = base.filter((it) => !taken.has(`${it.productId}::${it.serialNumber}`));
+    }
     const q = invSearch.trim().toLowerCase();
     if (!q) return base.slice(0, 100);
     return base.filter(
@@ -291,7 +317,24 @@ export default function ReceiptActionScreen() {
         it.type.toLowerCase().includes(q) ||
         it.serialNumber.toLowerCase().includes(q)
     );
-  }, [inventoryItems, invSearch, receiptType, trialLoc, trialProduct]);
+  }, [inventoryItems, invSearch, receiptType, trialLoc, trialProduct, saleLines, invModalLineId]);
+
+  const suggestedInvoiceTotal = useMemo(() => {
+    let sum = 0;
+    for (const line of saleLines) {
+      if (!line.inv) continue;
+      const sp = parseFloat(line.sellingPrice.replace(/,/g, '')) || 0;
+      const gst = parseFloat(line.gstPercent) || 0;
+      const qty = Math.max(1, Math.floor(parseFloat(line.qty) || 1));
+      sum += lineInclusiveTotal(line.inv.mrp, sp, gst, qty);
+    }
+    return roundInrRupee(sum);
+  }, [saleLines]);
+
+  useEffect(() => {
+    if (receiptType !== 'invoice') return;
+    if (suggestedInvoiceTotal > 0) setAmount(String(suggestedInvoiceTotal));
+  }, [receiptType, suggestedInvoiceTotal]);
 
   const fromCache = useMemo(
     () => appointments.find((a) => a.id === appointmentId) || null,
@@ -394,12 +437,6 @@ export default function ReceiptActionScreen() {
     }
   }, [trialDuration, trialStart, trialLoc]);
 
-  useEffect(() => {
-    if (selectedInv) {
-      setSaleSelling(String(selectedInv.mrp || 0));
-    }
-  }, [selectedInv]);
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const n = Number(amount.replace(/,/g, '').trim());
@@ -460,25 +497,32 @@ export default function ReceiptActionScreen() {
     }
 
     if (receiptType === 'invoice') {
-      if (!selectedInv) {
-        setErrorBanner('Select a hearing aid from inventory.');
+      const filled = saleLines.filter((l) => l.inv);
+      if (filled.length === 0) {
+        setErrorBanner('Add at least one line and pick inventory (serial) for each.');
         return;
       }
-      const sp = Number(saleSelling);
-      const disc = Number(saleDiscount);
-      const gst = Number(saleGst);
-      const qty = Number(saleQty);
-      if (!Number.isFinite(sp) || sp < 0) {
-        setErrorBanner('Enter selling price.');
-        return;
-      }
-      if (!Number.isFinite(disc) || disc < 0 || disc > 100 || !Number.isFinite(gst) || gst < 0) {
-        setErrorBanner('Check discount and GST %.');
-        return;
-      }
-      if (!Number.isFinite(qty) || qty < 1) {
-        setErrorBanner('Enter quantity.');
-        return;
+      for (const line of filled) {
+        const inv = line.inv!;
+        const sp = Number(line.sellingPrice.replace(/,/g, ''));
+        const gst = Number(line.gstPercent);
+        const qty = Number(line.qty);
+        if (!Number.isFinite(sp) || sp < 0) {
+          setErrorBanner('Enter pre-tax selling price per unit for each line.');
+          return;
+        }
+        if (!Number.isFinite(gst) || gst < 0) {
+          setErrorBanner('Check GST % on each line.');
+          return;
+        }
+        if (!Number.isFinite(qty) || qty < 1) {
+          setErrorBanner('Enter quantity on each line.');
+          return;
+        }
+        if (inv.mrp > 0 && sp > inv.mrp) {
+          setErrorBanner(`Selling cannot exceed MRP for ${inv.name}.`);
+          return;
+        }
       }
     }
 
@@ -513,16 +557,29 @@ export default function ReceiptActionScreen() {
               }
             : {
                 sale: {
-                  productId: selectedInv!.productId,
-                  name: selectedInv!.name,
-                  company: selectedInv!.company,
-                  serialNumber: selectedInv!.serialNumber,
-                  mrp: selectedInv!.mrp,
-                  sellingPrice: Number(saleSelling),
-                  discountPercent: Number(saleDiscount),
-                  gstPercent: Number(saleGst),
-                  quantity: Math.max(1, Math.floor(Number(saleQty) || 1)),
                   whichEar: saleEar as 'left' | 'right' | 'both',
+                  products: saleLines
+                    .filter((l) => l.inv)
+                    .map((l) => {
+                      const inv = l.inv!;
+                      const sp = Number(l.sellingPrice.replace(/,/g, ''));
+                      const gst = Number(l.gstPercent);
+                      const qty = Math.max(1, Math.floor(Number(l.qty) || 1));
+                      const disc = derivedDiscountPercentFromMrpSelling(inv.mrp, sp);
+                      const w = l.warranty.trim();
+                      return {
+                        productId: inv.productId,
+                        name: inv.name,
+                        company: inv.company,
+                        serialNumber: inv.serialNumber,
+                        mrp: inv.mrp,
+                        sellingPrice: sp,
+                        discountPercent: disc,
+                        gstPercent: gst,
+                        quantity: qty,
+                        ...(w ? { warranty: w } : {}),
+                      };
+                    }),
                 },
               };
 
@@ -1196,6 +1253,9 @@ export default function ReceiptActionScreen() {
         {receiptType === 'invoice' ? (
           <div className={styles.block}>
             <h2 className={styles.blockTitle}>Sale — inventory (CRM)</h2>
+            <p className={styles.visitHint}>
+              Same pricing as CRM enquiry: set selling price (pre-tax); discount % is derived from MRP vs selling.
+            </p>
             <p className={styles.label}>Which ear</p>
             <div className={styles.chips}>
               {earOptions.map((o) => (
@@ -1209,8 +1269,138 @@ export default function ReceiptActionScreen() {
                 </button>
               ))}
             </div>
+            {saleLines.map((line) => {
+              const inv = line.inv;
+              const sp = parseFloat(line.sellingPrice.replace(/,/g, '')) || 0;
+              const gst = parseFloat(line.gstPercent) || 0;
+              const qty = Math.max(1, Math.floor(parseFloat(line.qty) || 1));
+              const discPct =
+                inv && inv.mrp > 0 ? derivedDiscountPercentFromMrpSelling(inv.mrp, sp) : 0;
+              const lineTot =
+                inv != null ? lineInclusiveTotal(inv.mrp, sp, gst, qty) : 0;
+              return (
+                <div key={line.id} className={styles.saleLineCard}>
+                  <div className={styles.saleLineHeader}>
+                    <span className={styles.blockTitle}>Line</span>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      aria-label="Remove line"
+                      onClick={() => setSaleLines((prev) => prev.filter((x) => x.id !== line.id))}
+                    >
+                      <Trash2 size={20} strokeWidth={2} />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className={`${styles.pickBtn} ${invModalLineId === line.id ? styles.invRowActive : ''}`}
+                    onClick={() => setInvModalLineId(line.id)}
+                  >
+                    {inv
+                      ? `${inv.name} · SN ${inv.serialNumber}`
+                      : 'Tap to select serial (then choose from list below)'}
+                  </button>
+                  {inv ? (
+                    <>
+                      <p className={styles.meta}>MRP: ₹{inv.mrp}</p>
+                      <p className={styles.meta}>Discount (derived): {discPct}%</p>
+                      <label className={styles.label}>Selling price (pre-tax / unit) ₹</label>
+                      <input
+                        className={styles.input}
+                        inputMode="decimal"
+                        value={line.sellingPrice}
+                        onChange={(e) =>
+                          setSaleLines((prev) =>
+                            prev.map((l) => (l.id === line.id ? { ...l, sellingPrice: e.target.value } : l))
+                          )
+                        }
+                      />
+                      <label className={styles.label}>GST %</label>
+                      <input
+                        className={styles.input}
+                        inputMode="decimal"
+                        value={line.gstPercent}
+                        onChange={(e) =>
+                          setSaleLines((prev) =>
+                            prev.map((l) => (l.id === line.id ? { ...l, gstPercent: e.target.value } : l))
+                          )
+                        }
+                      />
+                      <label className={styles.label}>Quantity</label>
+                      <input
+                        className={styles.input}
+                        inputMode="numeric"
+                        value={line.qty}
+                        onChange={(e) =>
+                          setSaleLines((prev) =>
+                            prev.map((l) => (l.id === line.id ? { ...l, qty: e.target.value } : l))
+                          )
+                        }
+                      />
+                      <p className={styles.meta}>Line total (incl. GST): ₹{lineTot}</p>
+                      <p className={styles.label}>Warranty</p>
+                      <div className={styles.chips}>
+                        {HEARING_AID_SALE_WARRANTY_OPTIONS.map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            className={`${styles.chip} ${line.warranty === opt ? styles.chipActive : ''}`}
+                            onClick={() =>
+                              setSaleLines((prev) =>
+                                prev.map((l) => (l.id === line.id ? { ...l, warranty: opt } : l))
+                              )
+                            }
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                      <label className={styles.label}>Warranty (custom)</label>
+                      <input
+                        className={styles.input}
+                        value={line.warranty}
+                        onChange={(e) =>
+                          setSaleLines((prev) =>
+                            prev.map((l) => (l.id === line.id ? { ...l, warranty: e.target.value } : l))
+                          )
+                        }
+                      />
+                    </>
+                  ) : null}
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              className={styles.pickBtn}
+              onClick={() => {
+                const id = newSaleLineId();
+                setSaleLines((prev) => [
+                  ...prev,
+                  {
+                    id,
+                    inv: null,
+                    sellingPrice: '',
+                    gstPercent: '18',
+                    qty: '1',
+                    warranty: '',
+                  },
+                ]);
+                setInvModalLineId(id);
+              }}
+            >
+              <span className={styles.addLineInner}>
+                <CirclePlus size={18} strokeWidth={2} />
+                Add line
+              </span>
+            </button>
             {inventoryLoading ? <p className={styles.meta}>Loading inventory…</p> : null}
-            <label className={styles.label}>Search & select serial</label>
+            {invModalLineId ? (
+              <p className={styles.meta}>Selecting serial for the highlighted line — tap a row below.</p>
+            ) : (
+              <p className={styles.meta}>Add a line, tap “select serial” on that line, then pick stock below.</p>
+            )}
+            <label className={styles.label}>Search inventory</label>
             <input
               className={styles.input}
               placeholder="Filter by name, company, serial"
@@ -1222,8 +1412,28 @@ export default function ReceiptActionScreen() {
                 <button
                   key={it.lineId}
                   type="button"
-                  className={`${styles.invRow} ${selectedInv?.lineId === it.lineId ? styles.invRowActive : ''}`}
-                  onClick={() => setSelectedInv(it)}
+                  className={styles.invRow}
+                  onClick={() => {
+                    if (!invModalLineId) {
+                      setErrorBanner('Tap “select serial” on a line first, or add a line.');
+                      return;
+                    }
+                    setSaleLines((prev) =>
+                      prev.map((l) =>
+                        l.id === invModalLineId
+                          ? {
+                              ...l,
+                              inv: it,
+                              sellingPrice: String(it.mrp ?? 0),
+                              gstPercent: '18',
+                              qty: '1',
+                            }
+                          : l
+                      )
+                    );
+                    setInvModalLineId(null);
+                    setErrorBanner(null);
+                  }}
                 >
                   <span className={styles.invName}>{it.name}</span>
                   <span className={styles.invSub}>
@@ -1232,17 +1442,8 @@ export default function ReceiptActionScreen() {
                 </button>
               ))}
             </div>
-            {selectedInv ? (
-              <>
-                <label className={styles.label}>Selling price (per unit) ₹</label>
-                <input className={styles.input} inputMode="decimal" value={saleSelling} onChange={(e) => setSaleSelling(e.target.value)} />
-                <label className={styles.label}>Discount %</label>
-                <input className={styles.input} inputMode="decimal" value={saleDiscount} onChange={(e) => setSaleDiscount(e.target.value)} />
-                <label className={styles.label}>GST %</label>
-                <input className={styles.input} inputMode="decimal" value={saleGst} onChange={(e) => setSaleGst(e.target.value)} />
-                <label className={styles.label}>Quantity</label>
-                <input className={styles.input} inputMode="numeric" value={saleQty} onChange={(e) => setSaleQty(e.target.value)} />
-              </>
+            {suggestedInvoiceTotal > 0 ? (
+              <p className={styles.meta}>Suggested payment (sum of lines): ₹{suggestedInvoiceTotal}</p>
             ) : null}
           </div>
         ) : null}

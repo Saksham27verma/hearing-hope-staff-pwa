@@ -810,3 +810,52 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+.saleLineCard {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--hh-border);
+}
+
+.saleLineHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.iconBtn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--hh-muted);
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.iconBtn:hover {
+  color: var(--hh-text);
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.pickBtn {
+  width: 100%;
+  text-align: left;
+  padding: 0.75rem 0.875rem;
+  font-size: 1rem;
+  border: 1px dashed var(--hh-divider);
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+  background: var(--hh-card);
+  color: var(--hh-text);
+  cursor: pointer;
+}
+
+.addLineInner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
