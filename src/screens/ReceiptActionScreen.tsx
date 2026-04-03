@@ -1296,7 +1296,7 @@ export default function ReceiptActionScreen() {
                     <button
                       key={`d2-${it.id}`}
                       type="button"
-                      className={`${styles.invRow} ${trialProduct2?.id === it.id ? styles.invRowActive : ''}`}
+                      className={styles.invRow}
                       onClick={() => setTrialProduct2(it)}
                     >
                       <span className={styles.invName}>{it.name}</span>
