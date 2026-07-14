@@ -155,7 +155,8 @@ export default function EndOfVisitComplianceScreen() {
           if (serverStep === 'pin') return 'pin';
           // Don't yank staff backwards while editing earlier steps
           if (prev === 'pin') return prev;
-          if (prev === 'wrapUp' && serverStep !== 'pin') return prev;
+          // After form is filled (wrapUp), stay there until staff requests PIN
+          if (prev === 'wrapUp') return prev;
           if (serverStep && STEP_ORDER.indexOf(serverStep) > STEP_ORDER.indexOf(prev)) {
             return serverStep;
           }

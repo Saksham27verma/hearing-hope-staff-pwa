@@ -5,7 +5,6 @@ import { VitePWA } from 'vite-plugin-pwa';
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const crmBase = (env.VITE_CRM_URL || 'http://localhost:3000').replace(/\/$/, '');
 
   return {
     plugins: [
@@ -72,7 +71,10 @@ export default defineConfig(({ mode }) => {
         // Dev: same-origin /api/* → local CRM (prefer localhost so PIN/notify APIs work while coding).
         // Override with VITE_CRM_PROXY_TARGET if needed.
         '/api': {
-          target: (env.VITE_CRM_PROXY_TARGET || 'http://localhost:3000').replace(/\/$/, ''),
+          target: (env.VITE_CRM_PROXY_TARGET || env.VITE_CRM_URL || 'http://localhost:3000').replace(
+            /\/$/,
+            ''
+          ),
           changeOrigin: true,
           secure: false,
         },

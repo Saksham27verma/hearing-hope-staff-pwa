@@ -21,7 +21,6 @@ import { fetchStaffEnquiryConfig, type FieldOption } from '../api/staffEnquiryCo
 import { fetchStaffProductsCatalog, type CatalogProduct } from '../api/staffProductsCatalog';
 import {
   derivedDiscountPercentFromMrpSelling,
-  effectiveGstPercentFromCatalogProduct,
   effectiveGstPercentFromInventoryRow,
   HEARING_AID_SALE_WARRANTY_OPTIONS,
   lineInclusiveTotal,
@@ -335,24 +334,6 @@ export default function ReceiptActionScreen() {
     if (receiptType === 'trial') return templateLabels.trial;
     return templateLabels.invoice;
   }, [receiptType, templateLabels]);
-
-  const filteredInv = useMemo(() => {
-    const taken = new Set(
-      saleLines.filter((l) => l.inv).map((l) => `${l.inv!.productId}::${l.inv!.serialNumber}`)
-    );
-    let base = inventoryItems.filter((it) => !taken.has(`${it.productId}::${it.serialNumber}`));
-    const q = invSearch.trim().toLowerCase();
-    if (!q) return base.slice(0, 120);
-    return base
-      .filter(
-        (it) =>
-          it.name.toLowerCase().includes(q) ||
-          it.company.toLowerCase().includes(q) ||
-          it.type.toLowerCase().includes(q) ||
-          it.serialNumber.toLowerCase().includes(q)
-      )
-      .slice(0, 120);
-  }, [inventoryItems, invSearch, saleLines]);
 
   const suggestedBookingTotal = useMemo(() => {
     let sum = 0;
