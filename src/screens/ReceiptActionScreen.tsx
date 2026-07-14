@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent, HTMLAttributes } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { ArrowLeft, ChevronDown, ChevronRight, CirclePlus, List, Trash2 } from 'lucide-react';
 import { auth, db } from '../firebase';
 import type { Appointment } from '../types';
 import { useAppointmentsContext } from '../context/AppointmentsContext';
-import { isPayableAppointmentForPayment, isEligibleForVisitServicesLogging } from '../utils/appointmentPayable';
+import { isEligibleForPaymentToAdmin, isEligibleForVisitServicesLogging, isEligibleForCheckoutCommerceStaging, canOpenVisitWorkspace } from '../utils/appointmentPayable';
 import { submitLogVisitServices, type VisitServicesPayload } from '../api/logVisitServices';
 import { getStartForDisplay, formatTime } from '../dateUtils';
 import { submitCollectPayment, type PaymentMode, type ReceiptType } from '../api/collectPayment';
+import { saveCheckoutDraft } from '../api/visitCompliance';
 import {
   htmlTemplateIdForReceiptType,
   loadStaffReceiptTemplateLabels,
@@ -26,6 +27,7 @@ import {
   lineInclusiveTotal,
   roundInrRupee,
 } from '../utils/saleLineMath';
+import ProductPickSheet from '../components/ProductPickSheet';
 import styles from './ReceiptActionScreen.module.css';
 
 function toYmd(d: Date): string {
@@ -58,6 +60,21 @@ function newHtId() {
   return `ht-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+type BookingLineDraft = {
+  id: string;
+  product: CatalogProduct;
+  mrp: string;
+  selling: string;
+  qty: string;
+};
+
+type TrialModelDraft = {
+  id: string;
+  product: CatalogProduct;
+  mrp: string;
+  serial: string;
+};
+
 type SaleLineDraft = {
   id: string;
   inv: StaffInventoryRow | null;
@@ -71,10 +88,33 @@ function newSaleLineId() {
   return `sl-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function newBookingLineId() {
+  return `bk-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function newTrialModelId() {
+  return `tm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 export default function ReceiptActionScreen() {
   const { appointmentId: appointmentIdParam } = useParams<{ appointmentId: string }>();
   const appointmentId = appointmentIdParam ? decodeURIComponent(appointmentIdParam) : '';
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const fromCheckout = searchParams.get('from') === 'checkout';
+  const modeParam = (searchParams.get('mode') || '').toLowerCase();
+  const draftMode = searchParams.get('draft') === '1';
+  const goBack = () => {
+    if (fromCheckout && appointmentId) {
+      navigate(`/app/visit/${encodeURIComponent(appointmentId)}/compliance`);
+      return;
+    }
+    if (modeParam === 'payment' && appointmentId) {
+      navigate('/app', { replace: true });
+      return;
+    }
+    navigate(-1);
+  };
   const { appointments, isOnline } = useAppointmentsContext();
   const uid = auth.currentUser?.uid;
 
@@ -134,16 +174,12 @@ export default function ReceiptActionScreen() {
     setVsOpen((o) => ({ ...o, [key]: !o[key] }));
   }, []);
 
-  const [bookingProduct, setBookingProduct] = useState<CatalogProduct | null>(null);
+  const [bookingLines, setBookingLines] = useState<BookingLineDraft[]>([]);
   const [bookingEar, setBookingEar] = useState('both');
-  const [bookingMrp, setBookingMrp] = useState('');
-  const [bookingSelling, setBookingSelling] = useState('');
-  const [bookingQty, setBookingQty] = useState('1');
 
-  const [trialProduct, setTrialProduct] = useState<CatalogProduct | null>(null);
+  const [trialModels, setTrialModels] = useState<TrialModelDraft[]>([]);
   const [trialLoc, setTrialLoc] = useState<'in_office' | 'home'>('in_office');
   const [trialEar, setTrialEar] = useState('both');
-  const [trialMrp, setTrialMrp] = useState('');
   const [trialDuration, setTrialDuration] = useState('7');
   const [trialStart, setTrialStart] = useState(() => toYmd(new Date()));
   const [trialEnd, setTrialEnd] = useState(() => {
@@ -151,24 +187,23 @@ export default function ReceiptActionScreen() {
     e.setDate(e.getDate() + 7);
     return toYmd(e);
   });
-  const [trialSerial, setTrialSerial] = useState('');
   const [trialDeposit, setTrialDeposit] = useState('');
   const [trialNotes, setTrialNotes] = useState('');
-  const [trialProduct2, setTrialProduct2] = useState<CatalogProduct | null>(null);
-  const [trialMrp2, setTrialMrp2] = useState('');
-  const [trialSerial2, setTrialSerial2] = useState('');
+  /** Which trial model row is picking a serial (home trial). */
+  const [trialSerialPickId, setTrialSerialPickId] = useState<string | null>(null);
 
   const [inventoryItems, setInventoryItems] = useState<StaffInventoryRow[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [invSearch, setInvSearch] = useState('');
-  /** Which sale line is selecting inventory (`null` = not in invoice pick mode). */
-  const [invModalLineId, setInvModalLineId] = useState<string | null>(null);
   const [saleLines, setSaleLines] = useState<SaleLineDraft[]>([]);
   const [saleEar, setSaleEar] = useState('both');
 
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogItems, setCatalogItems] = useState<CatalogProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
+
+  type PickerMode = null | 'bookingCatalog' | 'trialCatalog' | 'saleStock' | 'trialStock';
+  const [pickerMode, setPickerMode] = useState<PickerMode>(null);
 
   const loadInventory = useCallback(async () => {
     setInventoryLoading(true);
@@ -276,10 +311,6 @@ export default function ReceiptActionScreen() {
     }
   }, [receiptType, trialLoc, loadInventory]);
 
-  useEffect(() => {
-    if (receiptType !== 'invoice') setInvModalLineId(null);
-  }, [receiptType]);
-
   const loadCatalog = useCallback(async (q: string) => {
     setCatalogLoading(true);
     try {
@@ -292,10 +323,12 @@ export default function ReceiptActionScreen() {
   }, []);
 
   useEffect(() => {
-    if (receiptType !== 'booking' && receiptType !== 'trial') return;
-    const t = setTimeout(() => void loadCatalog(catalogSearch), 300);
+    if (receiptType !== 'booking' && receiptType !== 'trial' && pickerMode !== 'bookingCatalog' && pickerMode !== 'trialCatalog') {
+      return;
+    }
+    const t = setTimeout(() => void loadCatalog(catalogSearch), 250);
     return () => clearTimeout(t);
-  }, [catalogSearch, loadCatalog, receiptType]);
+  }, [catalogSearch, loadCatalog, receiptType, pickerMode]);
 
   const currentPdfTemplate = useMemo(() => {
     if (receiptType === 'booking') return templateLabels.booking;
@@ -304,18 +337,12 @@ export default function ReceiptActionScreen() {
   }, [receiptType, templateLabels]);
 
   const filteredInv = useMemo(() => {
-    let base = inventoryItems;
-    if (receiptType === 'invoice' && invModalLineId != null) {
-      const taken = new Set(
-        saleLines
-          .filter((l) => l.id !== invModalLineId)
-          .filter((l) => l.inv)
-          .map((l) => `${l.inv!.productId}::${l.inv!.serialNumber}`)
-      );
-      base = base.filter((it) => !taken.has(`${it.productId}::${it.serialNumber}`));
-    }
+    const taken = new Set(
+      saleLines.filter((l) => l.inv).map((l) => `${l.inv!.productId}::${l.inv!.serialNumber}`)
+    );
+    let base = inventoryItems.filter((it) => !taken.has(`${it.productId}::${it.serialNumber}`));
     const q = invSearch.trim().toLowerCase();
-    if (!q) return base.slice(0, 100);
+    if (!q) return base.slice(0, 120);
     return base
       .filter(
         (it) =>
@@ -324,40 +351,18 @@ export default function ReceiptActionScreen() {
           it.type.toLowerCase().includes(q) ||
           it.serialNumber.toLowerCase().includes(q)
       )
-      .slice(0, 100);
-  }, [inventoryItems, invSearch, receiptType, saleLines, invModalLineId]);
+      .slice(0, 120);
+  }, [inventoryItems, invSearch, saleLines]);
 
-  const filterInvBySearch = (rows: StaffInventoryRow[]) => {
-    const q = invSearch.trim().toLowerCase();
-    if (!q) return rows.slice(0, 100);
-    return rows
-      .filter(
-        (it) =>
-          it.name.toLowerCase().includes(q) ||
-          it.company.toLowerCase().includes(q) ||
-          it.type.toLowerCase().includes(q) ||
-          it.serialNumber.toLowerCase().includes(q)
-      )
-      .slice(0, 100);
-  };
-
-  const trialHomeInv1 = useMemo(() => {
-    if (receiptType !== 'trial' || trialLoc !== 'home' || !trialProduct) return [];
-    let base = inventoryItems.filter((it) => it.productId === trialProduct.id);
-    if (trialProduct2 && trialProduct.id === trialProduct2.id && trialSerial2.trim()) {
-      base = base.filter((it) => it.serialNumber !== trialSerial2.trim());
+  const suggestedBookingTotal = useMemo(() => {
+    let sum = 0;
+    for (const line of bookingLines) {
+      const sell = Number(line.selling) || 0;
+      const qty = Math.max(1, Math.floor(Number(line.qty) || 1));
+      sum += sell * qty;
     }
-    return filterInvBySearch(base);
-  }, [inventoryItems, invSearch, receiptType, trialLoc, trialProduct, trialProduct2, trialSerial2]);
-
-  const trialHomeInv2 = useMemo(() => {
-    if (receiptType !== 'trial' || trialLoc !== 'home' || !trialProduct2) return [];
-    let base = inventoryItems.filter((it) => it.productId === trialProduct2.id);
-    if (trialProduct && trialProduct.id === trialProduct2.id && trialSerial.trim()) {
-      base = base.filter((it) => it.serialNumber !== trialSerial.trim());
-    }
-    return filterInvBySearch(base);
-  }, [inventoryItems, invSearch, receiptType, trialLoc, trialProduct, trialProduct2, trialSerial]);
+    return roundInrRupee(sum);
+  }, [bookingLines]);
 
   const suggestedInvoiceTotal = useMemo(() => {
     let sum = 0;
@@ -370,6 +375,11 @@ export default function ReceiptActionScreen() {
     }
     return roundInrRupee(sum);
   }, [saleLines]);
+
+  useEffect(() => {
+    if (receiptType !== 'booking') return;
+    if (suggestedBookingTotal > 0) setAmount(String(suggestedBookingTotal));
+  }, [receiptType, suggestedBookingTotal]);
 
   useEffect(() => {
     if (receiptType !== 'invoice') return;
@@ -394,13 +404,6 @@ export default function ReceiptActionScreen() {
     });
   }, [receiptType]);
 
-  /** Pre-select the only empty line so the inventory list applies the correct filter (PWA). */
-  useEffect(() => {
-    if (receiptType !== 'invoice') return;
-    if (saleLines.length !== 1 || saleLines[0].inv) return;
-    setInvModalLineId((cur) => cur ?? saleLines[0].id);
-  }, [receiptType, saleLines]);
-
   const fromCache = useMemo(
     () => appointments.find((a) => a.id === appointmentId) || null,
     [appointments, appointmentId]
@@ -416,7 +419,7 @@ export default function ReceiptActionScreen() {
         return;
       }
 
-      if (fromCache && isPayableAppointmentForPayment(fromCache)) {
+      if (fromCache && canOpenVisitWorkspace(fromCache)) {
         const mine =
           (fromCache.type === 'home' && fromCache.homeVisitorStaffId === uid) ||
           (fromCache.type === 'center' && fromCache.assignedStaffId === uid);
@@ -438,7 +441,7 @@ export default function ReceiptActionScreen() {
         const mine =
           (apt.type === 'home' && apt.homeVisitorStaffId === uid) ||
           (apt.type === 'center' && apt.assignedStaffId === uid);
-        if (!mine || !isPayableAppointmentForPayment(apt)) {
+        if (!mine || !canOpenVisitWorkspace(apt)) {
           setResolved(null);
           return;
         }
@@ -459,44 +462,40 @@ export default function ReceiptActionScreen() {
 
   useEffect(() => {
     if (resolved === null && !loading) {
-      setErrorBanner('This appointment cannot be used for visit details (payment / services).');
+      setErrorBanner('This appointment cannot be used for visit services or payment right now.');
     }
   }, [resolved, loading]);
 
-  useEffect(() => {
-    if (bookingProduct) {
-      const m = String(bookingProduct.mrp ?? 0);
-      setBookingMrp(m);
-      setBookingSelling(m);
+  const screenMode = useMemo((): 'services' | 'payment' | 'both' => {
+    if (!resolved) return 'both';
+    if (modeParam === 'payment') return 'payment';
+    if (modeParam === 'services') return 'services';
+    if (fromCheckout) return 'services';
+    if (resolved.type === 'home') {
+      if (isEligibleForPaymentToAdmin(resolved)) return 'payment';
+      return 'services';
     }
-  }, [bookingProduct]);
+    return 'both';
+  }, [resolved, modeParam, fromCheckout]);
 
-  useEffect(() => {
-    if (trialProduct) {
-      setTrialMrp(String(trialProduct.mrp ?? 0));
-    }
-  }, [trialProduct]);
-
-  useEffect(() => {
-    setTrialProduct2(null);
-    setTrialMrp2('');
-    setTrialSerial2('');
-  }, [trialProduct?.id]);
-
-  useEffect(() => {
-    if (trialProduct2) {
-      setTrialMrp2(String(trialProduct2.mrp ?? 0));
-    }
-  }, [trialProduct2]);
+  const showServicesSection =
+    (screenMode === 'services' || screenMode === 'both') &&
+    !!resolved &&
+    isEligibleForVisitServicesLogging(resolved);
+  const showPaymentSection =
+    (screenMode === 'payment' || screenMode === 'both') &&
+    !!resolved &&
+    (draftMode
+      ? isEligibleForCheckoutCommerceStaging(resolved) || isEligibleForPaymentToAdmin(resolved)
+      : isEligibleForPaymentToAdmin(resolved));
 
   useEffect(() => {
     if (trialLoc === 'in_office') {
       setTrialDuration('0');
       setTrialStart('');
       setTrialEnd('');
-      setTrialSerial('');
-      setTrialSerial2('');
       setTrialDeposit('0');
+      setTrialModels((prev) => prev.map((m) => ({ ...m, serial: '' })));
     } else {
       setTrialDuration((d) => (d === '0' ? '7' : d));
       if (!trialStart) setTrialStart(toYmd(new Date()));
@@ -517,40 +516,58 @@ export default function ReceiptActionScreen() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!resolved?.id) return;
+    if (!isEligibleForPaymentToAdmin(resolved) && !(draftMode && isEligibleForCheckoutCommerceStaging(resolved))) {
+      setErrorBanner(
+        resolved.type === 'home'
+          ? draftMode
+            ? 'Booking, trial, and sale can be filled during checkout before the telecaller PIN.'
+            : 'Complete the home visit checkout first. Booking, trial, and sale can only be sent to admin after the visit is finished.'
+          : 'Payment cannot be sent for this appointment right now.'
+      );
+      return;
+    }
     const n = Number(amount.replace(/,/g, '').trim());
     if (!Number.isFinite(n) || n <= 0) {
       setErrorBanner('Enter a positive amount (payment collected today).');
       return;
     }
-    if (!resolved?.id) return;
 
     if (receiptType === 'booking') {
-      if (!bookingProduct) {
-        setErrorBanner('Select a device from the product catalog (same as CRM).');
+      if (bookingLines.length === 0) {
+        setErrorBanner('Select at least one product for booking.');
         return;
       }
-      const mrp = Number(bookingMrp);
-      const sell = Number(bookingSelling);
-      const qty = Number(bookingQty);
-      if (!Number.isFinite(mrp) || mrp < 0 || !Number.isFinite(sell) || sell < 0) {
-        setErrorBanner('Enter valid MRP and selling price.');
-        return;
-      }
-      if (!Number.isFinite(qty) || qty < 1) {
-        setErrorBanner('Enter quantity at least 1.');
-        return;
+      for (const line of bookingLines) {
+        const mrp = Number(line.mrp);
+        const sell = Number(line.selling);
+        const qty = Number(line.qty);
+        if (!Number.isFinite(mrp) || mrp < 0 || !Number.isFinite(sell) || sell < 0) {
+          setErrorBanner(`Enter valid MRP and selling for ${line.product.name}.`);
+          return;
+        }
+        if (!Number.isFinite(qty) || qty < 1) {
+          setErrorBanner(`Enter quantity at least 1 for ${line.product.name}.`);
+          return;
+        }
       }
     }
 
     if (receiptType === 'trial') {
-      if (!trialProduct) {
-        setErrorBanner('Select a device from the product catalog (same as CRM).');
+      if (trialModels.length === 0) {
+        setErrorBanner('Select at least one trial model (up to 2).');
         return;
       }
-      const mrp = Number(trialMrp);
-      if (!Number.isFinite(mrp) || mrp < 0) {
-        setErrorBanner('Enter MRP per unit.');
+      if (trialModels.length > 2) {
+        setErrorBanner('Maximum 2 trial models.');
         return;
+      }
+      for (const m of trialModels) {
+        const mrp = Number(m.mrp);
+        if (!Number.isFinite(mrp) || mrp < 0) {
+          setErrorBanner(`Enter MRP for ${m.product.name}.`);
+          return;
+        }
       }
       if (trialLoc === 'home') {
         const dur = Number(trialDuration);
@@ -562,18 +579,9 @@ export default function ReceiptActionScreen() {
           setErrorBanner('Enter trial start and end dates.');
           return;
         }
-        if (!trialSerial.trim()) {
-          setErrorBanner('Pick an inventory serial for home trial (device 1).');
-          return;
-        }
-        if (trialProduct2) {
-          if (!trialSerial2.trim()) {
-            setErrorBanner('Pick the second inventory serial for home trial.');
-            return;
-          }
-          const m2 = Number(trialMrp2);
-          if (!Number.isFinite(m2) || m2 < 0) {
-            setErrorBanner('Enter MRP for device 2.');
+        for (const m of trialModels) {
+          if (!m.serial.trim()) {
+            setErrorBanner(`Pick a stock serial for ${m.product.name}.`);
             return;
           }
         }
@@ -618,35 +626,44 @@ export default function ReceiptActionScreen() {
     setSubmitting(true);
     setErrorBanner(null);
     try {
+      const bookingItems = bookingLines.map((line) => ({
+        catalogProductId: line.product.id,
+        hearingAidPrice: Number(line.mrp),
+        bookingSellingPrice: Number(line.selling),
+        bookingQuantity: Math.max(1, Math.floor(Number(line.qty) || 1)),
+      }));
+      const t0 = trialModels[0];
+      const t1 = trialModels[1];
       const details =
         receiptType === 'booking'
           ? {
               booking: {
-                catalogProductId: bookingProduct!.id,
                 whichEar: bookingEar as 'left' | 'right' | 'both',
-                hearingAidPrice: Number(bookingMrp),
-                bookingSellingPrice: Number(bookingSelling),
-                bookingQuantity: Math.max(1, Math.floor(Number(bookingQty) || 1)),
+                items: bookingItems,
+                catalogProductId: bookingItems[0].catalogProductId,
+                hearingAidPrice: bookingItems[0].hearingAidPrice,
+                bookingSellingPrice: bookingItems[0].bookingSellingPrice,
+                bookingQuantity: bookingItems[0].bookingQuantity,
               },
             }
           : receiptType === 'trial'
             ? {
                 trial: {
-                  catalogProductId: trialProduct!.id,
-                  ...(trialProduct2
+                  catalogProductId: t0!.product.id,
+                  ...(t1
                     ? {
-                        secondCatalogProductId: trialProduct2.id,
-                        secondHearingAidPrice: Number(trialMrp2),
-                        secondTrialSerialNumber: trialLoc === 'home' ? trialSerial2.trim() : '',
+                        secondCatalogProductId: t1.product.id,
+                        secondHearingAidPrice: Number(t1.mrp),
+                        secondTrialSerialNumber: trialLoc === 'home' ? t1.serial.trim() : '',
                       }
                     : {}),
                   trialLocationType: trialLoc,
                   whichEar: trialEar as 'left' | 'right' | 'both',
-                  hearingAidPrice: Number(trialMrp),
+                  hearingAidPrice: Number(t0!.mrp),
                   trialDuration: trialLoc === 'home' ? Math.max(1, Math.floor(Number(trialDuration) || 1)) : 0,
                   trialStartDate: trialLoc === 'home' ? trialStart.trim() : '',
                   trialEndDate: trialLoc === 'home' ? trialEnd.trim() : '',
-                  trialSerialNumber: trialLoc === 'home' ? trialSerial.trim() : '',
+                  trialSerialNumber: trialLoc === 'home' ? t0!.serial.trim() : '',
                   trialHomeSecurityDepositAmount: trialLoc === 'home' ? Number(trialDeposit) : 0,
                   trialNotes: trialNotes.trim(),
                 },
@@ -680,6 +697,50 @@ export default function ReceiptActionScreen() {
               };
 
       const htmlTemplateId = htmlTemplateIdForReceiptType(templateLabels, receiptType);
+
+      if (draftMode && fromCheckout) {
+        const summaryLines: string[] = [];
+        if (receiptType === 'booking') {
+          for (const line of bookingLines) {
+            summaryLines.push(
+              `${line.product.name} · MRP ₹${line.mrp} · sell ₹${line.selling} · qty ${line.qty}`
+            );
+          }
+        } else if (receiptType === 'trial') {
+          for (const m of trialModels) {
+            summaryLines.push(
+              `${m.product.name} · MRP ₹${m.mrp}${m.serial ? ` · SN ${m.serial}` : ''}`
+            );
+          }
+          summaryLines.push(`Trial type: ${trialLoc}`);
+        } else {
+          for (const line of saleLines.filter((l) => l.inv)) {
+            const inv = line.inv!;
+            summaryLines.push(`${inv.name} · SN ${inv.serialNumber} · sell ₹${line.sellingPrice}`);
+          }
+        }
+        const draftResult = await saveCheckoutDraft({
+          appointmentId: resolved.id,
+          patch: {
+            commerce: {
+              receiptType,
+              amount: n,
+              paymentMode,
+              details,
+              summaryLines,
+            },
+            commerceSkipped: false,
+          },
+        });
+        if (!draftResult.ok) {
+          setErrorBanner(draftResult.error || 'Could not save for telecaller review');
+          return;
+        }
+        alert('Saved for telecaller review. Continue checkout, then PIN will be last.');
+        goBack();
+        return;
+      }
+
       const result = await submitCollectPayment({
         appointmentId: resolved.id,
         amount: n,
@@ -693,7 +754,7 @@ export default function ReceiptActionScreen() {
         return;
       }
       alert('Receipt request sent to admin. An administrator will verify and send the official document to the patient.');
-      navigate(-1);
+      goBack();
     } finally {
       setSubmitting(false);
     }
@@ -785,6 +846,21 @@ export default function ReceiptActionScreen() {
         setErrorBanner(r.error || 'Failed to save');
         return;
       }
+      if (fromCheckout) {
+        await saveCheckoutDraft({
+          appointmentId: resolved.id,
+          patch: {
+            services: {
+              ...built.services,
+              savedAt: new Date().toISOString(),
+            },
+            servicesSkipped: false,
+          },
+        });
+        alert('Visit services saved. Continue checkout — telecaller will review these details.');
+        goBack();
+        return;
+      }
       alert('Visit services were logged to the enquiry.');
     } catch (e: unknown) {
       setErrorBanner(e instanceof Error ? e.message : 'Failed to save');
@@ -809,7 +885,7 @@ export default function ReceiptActionScreen() {
     return (
       <div className={styles.container}>
         <header className={styles.header}>
-          <button type="button" className={styles.backBtn} onClick={() => navigate(-1)} aria-label="Back">
+          <button type="button" className={styles.backBtn} onClick={goBack} aria-label="Back">
             <ArrowLeft size={22} strokeWidth={2} />
           </button>
           <h1 className={styles.title}>Visit details</h1>
@@ -821,18 +897,30 @@ export default function ReceiptActionScreen() {
 
   const typeLabel = resolved.type === 'home' ? 'Home visit' : 'Center';
   const startIso = getStartForDisplay(resolved.start);
-  const showVisitServicesForm =
-    !!(resolved.enquiryId || '').trim() && isEligibleForVisitServicesLogging(resolved);
+  const pageTitle =
+    screenMode === 'payment'
+      ? 'Booking / trial / sale'
+      : screenMode === 'services'
+        ? 'Visit services'
+        : 'Visit details';
+  const pageKicker =
+    screenMode === 'payment'
+      ? draftMode
+        ? 'Fill now · telecaller confirms · sent after PIN'
+        : 'Send to admin after visit complete'
+      : fromCheckout
+        ? 'Checkout · Services only'
+        : 'Visit workspace';
 
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <button type="button" className={styles.backBtn} onClick={() => navigate(-1)} aria-label="Back">
+        <button type="button" className={styles.backBtn} onClick={goBack} aria-label="Back">
           <ArrowLeft size={22} strokeWidth={2} />
         </button>
         <div className={styles.headerCenter}>
-          <p className={styles.headerKicker}>Visit workspace</p>
-          <h1 className={styles.title}>Visit details</h1>
+          <p className={styles.headerKicker}>{pageKicker}</p>
+          <h1 className={styles.title}>{pageTitle}</h1>
         </div>
       </header>
 
@@ -848,13 +936,33 @@ export default function ReceiptActionScreen() {
           </p>
         </div>
 
+        {screenMode === 'services' ? (
+          <p className={styles.visitHint}>
+            {fromCheckout
+              ? 'Log clinical services now. The telecaller will confirm these with the patient before the PIN.'
+              : 'Log clinical services only. Booking / trial / sale is unlocked after home visit checkout is completed.'}
+          </p>
+        ) : null}
+        {screenMode === 'payment' && resolved.type === 'home' && !draftMode ? (
+          <p className={styles.visitHint}>
+            Visit is completed. Send booking, trial, or sale to admin for verification.
+          </p>
+        ) : null}
+        {screenMode === 'payment' && draftMode ? (
+          <p className={styles.visitHint}>
+            Fill booking / trial / sale now for telecaller review. Admin receives it only after PIN verification.
+          </p>
+        ) : null}
+
+        {(screenMode === 'services' || screenMode === 'both') ? (
+          <>
         <h2 className={styles.visitBlockTitle}>Visit services (CRM)</h2>
         <p className={styles.visitHint}>
           Same test types and staff names as the CRM enquiry form. Requires internet. Link an enquiry if missing.
         </p>
         {!resolved.enquiryId?.trim() ? (
           <p className={styles.visitMuted}>No enquiry linked — connect this appointment in CRM to save visit services.</p>
-        ) : !showVisitServicesForm ? (
+        ) : !showServicesSection ? (
           <p className={styles.visitMuted}>Visit services are not available for this appointment.</p>
         ) : (
           <div className={styles.visitServicesShell}>
@@ -1117,399 +1225,386 @@ export default function ReceiptActionScreen() {
 
           </div>
         )}
-
-        <h2 className={styles.visitBlockTitle}>Payment & receipt</h2>
-        <p className={styles.visitHint}>Collect payment for trial, booking, or sale — request goes to admin for verification.</p>
-
-        <div className={styles.amountHero}>
-          <label className={styles.amountLabel} htmlFor="amount">
-            Payment collected today
-          </label>
-          <div className={styles.amountRow}>
-            <span className={styles.amountRupee} aria-hidden>
-              ₹
-            </span>
-            <input
-              id="amount"
-              className={styles.amountInput}
-              inputMode="decimal"
-              placeholder="0"
-              value={amount}
-              onChange={(ev) => setAmount(ev.target.value)}
-              disabled={visitFormBusy}
-              autoComplete="off"
-            />
-          </div>
-        </div>
-
-        <p className={styles.pillGroupLabel}>Payment mode</p>
-        <div className={styles.pillRow}>
-          {(['cash', 'upi', 'card'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={`${styles.pill} ${paymentMode === m ? styles.pillActive : ''}`}
-              onClick={() => setPaymentMode(m)}
-              disabled={visitFormBusy}
-            >
-              {m.toUpperCase()}
-            </button>
-          ))}
-        </div>
-
-        <p className={styles.pillGroupLabel}>Receipt type</p>
-        <div className={styles.pillRow}>
-          {(['trial', 'booking', 'invoice'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={`${styles.pill} ${receiptType === t ? styles.pillActive : ''}`}
-              onClick={() => setReceiptType(t)}
-              disabled={visitFormBusy}
-            >
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        <div className={styles.softCard}>
-          <p className={styles.sectionLabel}>PDF template (CRM)</p>
-          {currentPdfTemplate ? (
-            <>
-              <p className={styles.meta} style={{ marginTop: 0 }}>
-                <span className={styles.templateStrong}>{currentPdfTemplate.name}</span>
-              </p>
-              <p className={styles.templateMono}>ID: {currentPdfTemplate.id}</p>
-              <p className={styles.templateHint}>
-                This template is pinned in CRM Invoice Manager. Its ID is sent with your request so the PDF matches what
-                admins see there.
-              </p>
-            </>
-          ) : (
-            <p className={styles.meta} style={{ marginTop: 0 }}>
-              No template pinned for this receipt type in CRM. The server will choose a default HTML template (same as
-              before Invoice Manager routing).
-            </p>
-          )}
-        </div>
-
-        {receiptType === 'booking' ? (
-          <div className={styles.block}>
-            <h2 className={styles.blockTitle}>Booking — catalog (CRM)</h2>
-            <label className={styles.label}>Search product catalog</label>
-            <input
-              className={styles.input}
-              placeholder="Company, model, type"
-              value={catalogSearch}
-              onChange={(e) => setCatalogSearch(e.target.value)}
-            />
-            {catalogLoading ? <p className={styles.meta}>Loading…</p> : null}
-            <div className={styles.invList}>
-              {catalogItems.map((it) => (
-                <button
-                  key={it.id}
-                  type="button"
-                  className={`${styles.invRow} ${bookingProduct?.id === it.id ? styles.invRowActive : ''}`}
-                  onClick={() => setBookingProduct(it)}
-                >
-                  <span className={styles.invName}>{it.name}</span>
-                  <span className={styles.invSub}>
-                    {it.company} · {it.type} · ₹{it.mrp ?? 0}
-                  </span>
-                </button>
-              ))}
-            </div>
-            {bookingProduct ? (
-              <p className={styles.meta}>Selected: {bookingProduct.company} · {bookingProduct.name}</p>
-            ) : null}
-            <p className={styles.label}>Which ear</p>
-            <div className={styles.chips}>
-              {earOptions.map((o) => (
-                <button
-                  key={o.optionValue}
-                  type="button"
-                  className={`${styles.chip} ${bookingEar === o.optionValue ? styles.chipActive : ''}`}
-                  onClick={() => setBookingEar(o.optionValue)}
-                >
-                  {o.optionLabel}
-                </button>
-              ))}
-            </div>
-            <label className={styles.label}>MRP (per unit) ₹</label>
-            <input className={styles.input} inputMode="decimal" value={bookingMrp} onChange={(e) => setBookingMrp(e.target.value)} />
-            <label className={styles.label}>Selling price (per unit) ₹</label>
-            <input
-              className={styles.input}
-              inputMode="decimal"
-              value={bookingSelling}
-              onChange={(e) => setBookingSelling(e.target.value)}
-            />
-            <label className={styles.label}>Quantity</label>
-            <input className={styles.input} inputMode="numeric" value={bookingQty} onChange={(e) => setBookingQty(e.target.value)} />
-            {bookingProduct ? (
-              <p className={styles.meta}>
-                GST % (from catalog): {effectiveGstPercentFromCatalogProduct(bookingProduct)}%
-                {bookingProduct.gstApplicable === false ? ' · GST exempt' : ''}
-              </p>
-            ) : null}
-          </div>
+          </>
         ) : null}
 
-        {receiptType === 'trial' ? (
-          <div className={styles.block}>
-            <h2 className={styles.blockTitle}>Trial — catalog + trial type (CRM)</h2>
-            <label className={styles.label}>Search product catalog</label>
-            <input
-              className={styles.input}
-              placeholder="Company, model, type"
-              value={catalogSearch}
-              onChange={(e) => setCatalogSearch(e.target.value)}
-            />
-            {catalogLoading ? <p className={styles.meta}>Loading…</p> : null}
-            <p className={styles.label}>Device 1 (catalog)</p>
-            <div className={styles.invList}>
-              {catalogItems.map((it) => (
+        {showPaymentSection ? (
+          <>
+            <h2 className={styles.visitBlockTitle}>Send to admin</h2>
+            <p className={styles.visitHint}>
+              Choose one option, fill only the details for that option, then enter what was collected and send.
+            </p>
+
+            <p className={styles.commerceStep}>Step 1 · What are you sending?</p>
+            <div className={styles.commerceTypeGrid}>
+              {(
+                [
+                  {
+                    id: 'booking' as const,
+                    title: 'Booking',
+                    desc: 'Advance / booking for a device from catalog',
+                  },
+                  {
+                    id: 'trial' as const,
+                    title: 'Trial',
+                    desc: 'In-office or home trial',
+                  },
+                  {
+                    id: 'invoice' as const,
+                    title: 'Sale',
+                    desc: 'Final sale with inventory serial',
+                  },
+                ] as const
+              ).map((opt) => (
                 <button
-                  key={it.id}
+                  key={opt.id}
                   type="button"
-                  className={`${styles.invRow} ${trialProduct?.id === it.id ? styles.invRowActive : ''}`}
-                  onClick={() => setTrialProduct(it)}
+                  className={`${styles.commerceTypeCard} ${receiptType === opt.id ? styles.commerceTypeCardOn : ''}`}
+                  onClick={() => setReceiptType(opt.id)}
+                  disabled={visitFormBusy}
                 >
-                  <span className={styles.invName}>{it.name}</span>
-                  <span className={styles.invSub}>
-                    {it.company} · {it.type} · ₹{it.mrp ?? 0}
-                  </span>
+                  <span className={styles.commerceTypeTitle}>{opt.title}</span>
+                  <span className={styles.commerceTypeDesc}>{opt.desc}</span>
                 </button>
               ))}
             </div>
-            {trialProduct ? (
-              <p className={styles.meta}>
-                GST % (device 1, from catalog): {effectiveGstPercentFromCatalogProduct(trialProduct)}%
-                {trialProduct.gstApplicable === false ? ' · GST exempt' : ''}
-              </p>
-            ) : null}
-            {trialProduct && !trialProduct2 ? (
-              <>
-                <p className={styles.label}>Device 2 (optional — max 2 devices)</p>
-                <div className={styles.invList}>
-                  {catalogItems.map((it) => (
+
+            <p className={styles.commerceStep}>
+              Step 2 · {receiptType === 'invoice' ? 'Sale' : receiptType === 'trial' ? 'Trial' : 'Booking'}{' '}
+              details
+            </p>
+
+            {receiptType === 'booking' ? (
+              <div className={styles.commercePanel}>
+                <p className={styles.commercePanelLead}>
+                  Select one or more catalog products, then set MRP / selling / qty for each.
+                </p>
+                <button
+                  type="button"
+                  className={styles.pickBtn}
+                  onClick={() => {
+                    setCatalogSearch('');
+                    setPickerMode('bookingCatalog');
+                  }}
+                >
+                  <span className={styles.addLineInner}>
+                    <CirclePlus size={18} strokeWidth={2} />
+                    {bookingLines.length ? 'Add / change products' : 'Select products from catalog'}
+                  </span>
+                </button>
+                {bookingLines.map((line) => (
+                  <div key={line.id} className={styles.saleLineCard}>
+                    <div className={styles.saleLineHeader}>
+                      <span className={styles.blockTitle}>{line.product.name}</span>
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        aria-label="Remove"
+                        onClick={() => setBookingLines((prev) => prev.filter((x) => x.id !== line.id))}
+                      >
+                        <Trash2 size={20} strokeWidth={2} />
+                      </button>
+                    </div>
+                    <p className={styles.meta}>
+                      {line.product.company} · {line.product.type}
+                    </p>
+                    <div className={styles.twoColFields}>
+                      <div>
+                        <label className={styles.label}>MRP ₹</label>
+                        <input
+                          className={styles.input}
+                          inputMode="decimal"
+                          value={line.mrp}
+                          onChange={(e) =>
+                            setBookingLines((prev) =>
+                              prev.map((l) => (l.id === line.id ? { ...l, mrp: e.target.value } : l))
+                            )
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className={styles.label}>Selling ₹</label>
+                        <input
+                          className={styles.input}
+                          inputMode="decimal"
+                          value={line.selling}
+                          onChange={(e) =>
+                            setBookingLines((prev) =>
+                              prev.map((l) => (l.id === line.id ? { ...l, selling: e.target.value } : l))
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                    <label className={styles.label}>Quantity</label>
+                    <input
+                      className={styles.input}
+                      inputMode="numeric"
+                      value={line.qty}
+                      onChange={(e) =>
+                        setBookingLines((prev) =>
+                          prev.map((l) => (l.id === line.id ? { ...l, qty: e.target.value } : l))
+                        )
+                      }
+                    />
+                  </div>
+                ))}
+                <p className={styles.label}>Which ear?</p>
+                <div className={styles.chips}>
+                  {earOptions.map((o) => (
                     <button
-                      key={`d2-${it.id}`}
+                      key={o.optionValue}
                       type="button"
-                      className={styles.invRow}
-                      onClick={() => setTrialProduct2(it)}
+                      className={`${styles.chip} ${bookingEar === o.optionValue ? styles.chipActive : ''}`}
+                      onClick={() => setBookingEar(o.optionValue)}
                     >
-                      <span className={styles.invName}>{it.name}</span>
-                      <span className={styles.invSub}>
-                        {it.company} · {it.type} · ₹{it.mrp ?? 0}
-                      </span>
+                      {o.optionLabel}
                     </button>
                   ))}
                 </div>
-              </>
-            ) : null}
-            {trialProduct2 ? (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                  <p className={styles.label} style={{ marginBottom: 0 }}>
-                    Device 2
-                  </p>
-                  <button type="button" className={styles.vsModalClose} onClick={() => setTrialProduct2(null)}>
-                    Remove
-                  </button>
-                </div>
-                <p className={styles.meta}>
-                  {trialProduct2.company} · {trialProduct2.name} ({trialProduct2.type})
-                </p>
-                <p className={styles.meta}>
-                  GST % (device 2, from catalog): {effectiveGstPercentFromCatalogProduct(trialProduct2)}%
-                  {trialProduct2.gstApplicable === false ? ' · GST exempt' : ''}
-                </p>
-                <label className={styles.label}>MRP device 2 (per unit) ₹</label>
-                <input className={styles.input} inputMode="decimal" value={trialMrp2} onChange={(e) => setTrialMrp2(e.target.value)} />
+                {suggestedBookingTotal > 0 ? (
+                  <p className={styles.suggestedTotal}>Suggested from lines: ₹{suggestedBookingTotal}</p>
+                ) : null}
               </div>
             ) : null}
-            <p className={styles.label}>Trial type</p>
-            <div className={styles.chips}>
-              {trialLocOptions.map((o) => {
-                const v = (o.optionValue === 'home' ? 'home' : 'in_office') as 'in_office' | 'home';
-                return (
-                  <button
-                    key={o.optionValue}
-                    type="button"
-                    className={`${styles.chip} ${trialLoc === v ? styles.chipActive : ''}`}
-                    onClick={() => setTrialLoc(v)}
-                  >
-                    {o.optionLabel}
-                  </button>
-                );
-              })}
-            </div>
-            <p className={styles.label}>Which ear</p>
-            <div className={styles.chips}>
-              {earOptions.map((o) => (
-                <button
-                  key={o.optionValue}
-                  type="button"
-                  className={`${styles.chip} ${trialEar === o.optionValue ? styles.chipActive : ''}`}
-                  onClick={() => setTrialEar(o.optionValue)}
-                >
-                  {o.optionLabel}
-                </button>
-              ))}
-            </div>
-            <label className={styles.label}>MRP (per unit) ₹</label>
-            <input className={styles.input} inputMode="decimal" value={trialMrp} onChange={(e) => setTrialMrp(e.target.value)} />
-            {trialLoc === 'home' ? (
-              <>
-                <label className={styles.label}>Trial period (days)</label>
-                <input className={styles.input} inputMode="numeric" value={trialDuration} onChange={(e) => setTrialDuration(e.target.value)} />
-                <label className={styles.label}>Trial start (YYYY-MM-DD)</label>
-                <input className={styles.input} value={trialStart} onChange={(e) => setTrialStart(e.target.value)} />
-                <label className={styles.label}>Trial end (YYYY-MM-DD)</label>
-                <input className={styles.input} value={trialEnd} onChange={(e) => setTrialEnd(e.target.value)} />
-                <label className={styles.label}>Inventory serial — device 1</label>
-                {inventoryLoading ? <p className={styles.meta}>Loading inventory…</p> : null}
-                <input
-                  className={styles.input}
-                  placeholder="Filter serials"
-                  value={invSearch}
-                  onChange={(e) => setInvSearch(e.target.value)}
-                />
-                <div className={styles.invList}>
-                  {trialHomeInv1.map((it) => (
+
+            {receiptType === 'trial' ? (
+              <div className={styles.commercePanel}>
+                <p className={styles.commercePanelLead}>
+                  Select up to 2 trial models. For home trial, pick a stock serial for each model.
+                </p>
+                <p className={styles.label}>Trial type</p>
+                <div className={styles.chips}>
+                  {trialLocOptions.map((o) => {
+                    const v = (o.optionValue === 'home' ? 'home' : 'in_office') as 'in_office' | 'home';
+                    return (
+                      <button
+                        key={o.optionValue}
+                        type="button"
+                        className={`${styles.chip} ${trialLoc === v ? styles.chipActive : ''}`}
+                        onClick={() => setTrialLoc(v)}
+                      >
+                        {o.optionLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className={styles.label}>Which ear?</p>
+                <div className={styles.chips}>
+                  {earOptions.map((o) => (
                     <button
-                      key={it.lineId}
+                      key={o.optionValue}
                       type="button"
-                      className={`${styles.invRow} ${trialSerial === it.serialNumber ? styles.invRowActive : ''}`}
-                      onClick={() => setTrialSerial(it.serialNumber)}
+                      className={`${styles.chip} ${trialEar === o.optionValue ? styles.chipActive : ''}`}
+                      onClick={() => setTrialEar(o.optionValue)}
                     >
-                      <span className={styles.invName}>{it.name}</span>
-                      <span className={styles.invSub}>
-                        {it.company} · {it.type} · SN {it.serialNumber} · ₹{it.mrp}
-                      </span>
+                      {o.optionLabel}
                     </button>
                   ))}
                 </div>
-                {trialProduct2 ? (
-                  <>
-                    <label className={styles.label}>Inventory serial — device 2</label>
-                    <div className={styles.invList}>
-                      {trialHomeInv2.map((it) => (
-                        <button
-                          key={`t2-${it.lineId}`}
-                          type="button"
-                          className={`${styles.invRow} ${trialSerial2 === it.serialNumber ? styles.invRowActive : ''}`}
-                          onClick={() => setTrialSerial2(it.serialNumber)}
-                        >
-                          <span className={styles.invName}>{it.name}</span>
-                          <span className={styles.invSub}>
-                            {it.company} · {it.type} · SN {it.serialNumber} · ₹{it.mrp}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
-                <label className={styles.label}>Security deposit ₹</label>
-                <input className={styles.input} inputMode="decimal" value={trialDeposit} onChange={(e) => setTrialDeposit(e.target.value)} />
-              </>
-            ) : null}
-            <label className={styles.label}>Trial notes</label>
-            <textarea className={styles.textarea} value={trialNotes} onChange={(e) => setTrialNotes(e.target.value)} rows={3} />
-          </div>
-        ) : null}
-
-        {receiptType === 'invoice' ? (
-          <div className={styles.block}>
-            <h2 className={styles.blockTitle}>Sale — inventory (CRM)</h2>
-            <p className={styles.visitHint}>
-              Same pricing as CRM enquiry: set selling price (pre-tax); discount % is derived from MRP vs selling.
-            </p>
-            <p className={styles.label}>Which ear</p>
-            <div className={styles.chips}>
-              {earOptions.map((o) => (
                 <button
-                  key={o.optionValue}
                   type="button"
-                  className={`${styles.chip} ${saleEar === o.optionValue ? styles.chipActive : ''}`}
-                  onClick={() => setSaleEar(o.optionValue)}
+                  className={styles.pickBtn}
+                  onClick={() => {
+                    setCatalogSearch('');
+                    setPickerMode('trialCatalog');
+                  }}
                 >
-                  {o.optionLabel}
+                  <span className={styles.addLineInner}>
+                    <CirclePlus size={18} strokeWidth={2} />
+                    {trialModels.length ? 'Change trial models' : 'Select trial models (max 2)'}
+                  </span>
                 </button>
-              ))}
-            </div>
-            {saleLines.map((line) => {
-              const inv = line.inv;
-              const sp = parseFloat(line.sellingPrice.replace(/,/g, '')) || 0;
-              const gst = parseFloat(line.gstPercent) || 0;
-              const qty = Math.max(1, Math.floor(parseFloat(line.qty) || 1));
-              const discPct =
-                inv && inv.mrp > 0 ? derivedDiscountPercentFromMrpSelling(inv.mrp, sp) : 0;
-              const lineTot =
-                inv != null ? lineInclusiveTotal(inv.mrp, sp, gst, qty) : 0;
-              return (
-                <div key={line.id} className={styles.saleLineCard}>
-                  <div className={styles.saleLineHeader}>
-                    <span className={styles.blockTitle}>Line</span>
-                    <button
-                      type="button"
-                      className={styles.iconBtn}
-                      aria-label="Remove line"
-                      onClick={() => setSaleLines((prev) => prev.filter((x) => x.id !== line.id))}
-                    >
-                      <Trash2 size={20} strokeWidth={2} />
-                    </button>
+                {trialModels.map((m, idx) => (
+                  <div key={m.id} className={styles.saleLineCard}>
+                    <div className={styles.saleLineHeader}>
+                      <span className={styles.blockTitle}>
+                        Model {idx + 1} · {m.product.name}
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        aria-label="Remove"
+                        onClick={() => setTrialModels((prev) => prev.filter((x) => x.id !== m.id))}
+                      >
+                        <Trash2 size={20} strokeWidth={2} />
+                      </button>
+                    </div>
+                    <p className={styles.meta}>
+                      {m.product.company} · {m.product.type}
+                    </p>
+                    <label className={styles.label}>MRP ₹</label>
+                    <input
+                      className={styles.input}
+                      inputMode="decimal"
+                      value={m.mrp}
+                      onChange={(e) =>
+                        setTrialModels((prev) =>
+                          prev.map((x) => (x.id === m.id ? { ...x, mrp: e.target.value } : x))
+                        )
+                      }
+                    />
+                    {trialLoc === 'home' ? (
+                      <>
+                        <button
+                          type="button"
+                          className={`${styles.pickBtn} ${m.serial ? styles.invRowActive : ''}`}
+                          onClick={() => {
+                            setInvSearch('');
+                            setTrialSerialPickId(m.id);
+                            setPickerMode('trialStock');
+                            void loadInventory();
+                          }}
+                        >
+                          {m.serial ? `Serial: ${m.serial}` : 'Pick stock serial'}
+                        </button>
+                      </>
+                    ) : null}
                   </div>
-                  <button
-                    type="button"
-                    className={`${styles.pickBtn} ${invModalLineId === line.id ? styles.invRowActive : ''}`}
-                    onClick={() => setInvModalLineId(line.id)}
-                  >
-                    {inv
-                      ? `${inv.name} · SN ${inv.serialNumber}`
-                      : 'Tap to select serial (then choose from list below)'}
-                  </button>
-                  {inv ? (
-                    <>
-                      <p className={styles.meta}>MRP: ₹{inv.mrp}</p>
-                      <p className={styles.meta}>Discount (derived): {discPct}%</p>
-                      <label className={styles.label}>Selling price (pre-tax / unit) ₹</label>
-                      <input
-                        className={styles.input}
-                        inputMode="decimal"
-                        value={line.sellingPrice}
-                        onChange={(e) =>
-                          setSaleLines((prev) =>
-                            prev.map((l) => (l.id === line.id ? { ...l, sellingPrice: e.target.value } : l))
-                          )
-                        }
-                      />
-                      <label className={styles.label}>GST % (from product when serial selected)</label>
-                      <input
-                        className={styles.input}
-                        inputMode="decimal"
-                        value={line.gstPercent}
-                        readOnly={!!inv}
-                        aria-readonly={!!inv}
-                        onChange={(e) =>
-                          setSaleLines((prev) =>
-                            prev.map((l) => (l.id === line.id ? { ...l, gstPercent: e.target.value } : l))
-                          )
-                        }
-                      />
-                      <label className={styles.label}>Quantity</label>
-                      <input
-                        className={styles.input}
-                        inputMode="numeric"
-                        value={line.qty}
-                        onChange={(e) =>
-                          setSaleLines((prev) =>
-                            prev.map((l) => (l.id === line.id ? { ...l, qty: e.target.value } : l))
-                          )
-                        }
-                      />
-                      <p className={styles.meta}>Line total (incl. GST): ₹{lineTot}</p>
+                ))}
+                {trialLoc === 'home' ? (
+                  <div className={styles.homeTrialBox}>
+                    <p className={styles.commercePanelLead}>Home trial period</p>
+                    <label className={styles.label}>Days</label>
+                    <input
+                      className={styles.input}
+                      inputMode="numeric"
+                      value={trialDuration}
+                      onChange={(e) => setTrialDuration(e.target.value)}
+                    />
+                    <div className={styles.twoColFields}>
+                      <div>
+                        <label className={styles.label}>Start</label>
+                        <input
+                          className={styles.input}
+                          type="date"
+                          value={trialStart}
+                          onChange={(e) => setTrialStart(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className={styles.label}>End</label>
+                        <input
+                          className={styles.input}
+                          type="date"
+                          value={trialEnd}
+                          onChange={(e) => setTrialEnd(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <label className={styles.label}>Security deposit ₹</label>
+                    <input
+                      className={styles.input}
+                      inputMode="decimal"
+                      value={trialDeposit}
+                      onChange={(e) => setTrialDeposit(e.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <p className={styles.infoNote}>In-office trial — no stock serial needed.</p>
+                )}
+                <label className={styles.label}>Notes (optional)</label>
+                <textarea
+                  className={styles.textarea}
+                  value={trialNotes}
+                  onChange={(e) => setTrialNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Anything admin should know…"
+                />
+              </div>
+            ) : null}
+
+            {receiptType === 'invoice' ? (
+              <div className={styles.commercePanel}>
+                <p className={styles.commercePanelLead}>
+                  Pick one or more serials from available stock, then set selling price on each.
+                </p>
+                <p className={styles.label}>Which ear?</p>
+                <div className={styles.chips}>
+                  {earOptions.map((o) => (
+                    <button
+                      key={o.optionValue}
+                      type="button"
+                      className={`${styles.chip} ${saleEar === o.optionValue ? styles.chipActive : ''}`}
+                      onClick={() => setSaleEar(o.optionValue)}
+                    >
+                      {o.optionLabel}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className={styles.pickBtn}
+                  onClick={() => {
+                    setInvSearch('');
+                    setPickerMode('saleStock');
+                    void loadInventory();
+                  }}
+                >
+                  <span className={styles.addLineInner}>
+                    <CirclePlus size={18} strokeWidth={2} />
+                    {saleLines.some((l) => l.inv) ? 'Add more stock items' : 'Select stock (multi-select)'}
+                  </span>
+                </button>
+                {saleLines.filter((l) => l.inv).map((line, idx) => {
+                  const inv = line.inv!;
+                  const sp = parseFloat(line.sellingPrice.replace(/,/g, '')) || 0;
+                  const gst = parseFloat(line.gstPercent) || 0;
+                  const qty = Math.max(1, Math.floor(parseFloat(line.qty) || 1));
+                  const discPct = inv.mrp > 0 ? derivedDiscountPercentFromMrpSelling(inv.mrp, sp) : 0;
+                  const lineTot = lineInclusiveTotal(inv.mrp, sp, gst, qty);
+                  return (
+                    <div key={line.id} className={styles.saleLineCard}>
+                      <div className={styles.saleLineHeader}>
+                        <span className={styles.blockTitle}>
+                          Item {idx + 1} · {inv.name}
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.iconBtn}
+                          aria-label="Remove"
+                          onClick={() => setSaleLines((prev) => prev.filter((x) => x.id !== line.id))}
+                        >
+                          <Trash2 size={20} strokeWidth={2} />
+                        </button>
+                      </div>
+                      <p className={styles.meta}>
+                        {inv.company} · SN {inv.serialNumber} · MRP ₹{inv.mrp}
+                      </p>
+                      <p className={styles.meta}>Discount from MRP: {discPct}%</p>
+                      <div className={styles.twoColFields}>
+                        <div>
+                          <label className={styles.label}>Selling ₹ (pre-tax)</label>
+                          <input
+                            className={styles.input}
+                            inputMode="decimal"
+                            value={line.sellingPrice}
+                            onChange={(e) =>
+                              setSaleLines((prev) =>
+                                prev.map((l) =>
+                                  l.id === line.id ? { ...l, sellingPrice: e.target.value } : l
+                                )
+                              )
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className={styles.label}>Qty</label>
+                          <input
+                            className={styles.input}
+                            inputMode="numeric"
+                            value={line.qty}
+                            onChange={(e) =>
+                              setSaleLines((prev) =>
+                                prev.map((l) => (l.id === line.id ? { ...l, qty: e.target.value } : l))
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                      <p className={styles.meta}>
+                        GST {gst}% · Line total ₹{lineTot}
+                      </p>
                       <p className={styles.label}>Warranty</p>
                       <div className={styles.chips}>
                         {HEARING_AID_SALE_WARRANTY_OPTIONS.map((opt) => (
@@ -1527,7 +1622,7 @@ export default function ReceiptActionScreen() {
                           </button>
                         ))}
                       </div>
-                      <label className={styles.label}>Warranty (custom)</label>
+                      <label className={styles.label}>Or type warranty</label>
                       <input
                         className={styles.input}
                         value={line.warranty}
@@ -1537,91 +1632,64 @@ export default function ReceiptActionScreen() {
                           )
                         }
                       />
-                    </>
-                  ) : null}
-                </div>
-              );
-            })}
-            <button
-              type="button"
-              className={styles.pickBtn}
-              onClick={() => {
-                const id = newSaleLineId();
-                setSaleLines((prev) => [
-                  ...prev,
-                  {
-                    id,
-                    inv: null,
-                    sellingPrice: '',
-                    gstPercent: '18',
-                    qty: '1',
-                    warranty: '',
-                  },
-                ]);
-                setInvModalLineId(id);
-              }}
-            >
-              <span className={styles.addLineInner}>
-                <CirclePlus size={18} strokeWidth={2} />
-                Add line
-              </span>
-            </button>
-            {inventoryLoading ? <p className={styles.meta}>Loading inventory…</p> : null}
-            {invModalLineId ? (
-              <p className={styles.meta}>Selecting serial for the highlighted line — tap a row below.</p>
-            ) : (
-              <p className={styles.meta}>Add a line, tap “select serial” on that line, then pick stock below.</p>
-            )}
-            <label className={styles.label}>Search inventory</label>
-            <input
-              className={styles.input}
-              placeholder="Filter by name, company, serial"
-              value={invSearch}
-              onChange={(e) => setInvSearch(e.target.value)}
-            />
-            <div className={styles.invList}>
-              {filteredInv.map((it) => (
-                <button
-                  key={it.lineId}
-                  type="button"
-                  className={styles.invRow}
-                  onClick={() => {
-                    if (!invModalLineId) {
-                      setErrorBanner('Tap “select serial” on a line first, or add a line.');
-                      return;
-                    }
-                    setSaleLines((prev) =>
-                      prev.map((l) =>
-                        l.id === invModalLineId
-                          ? {
-                              ...l,
-                              inv: it,
-                              sellingPrice: String(it.mrp ?? 0),
-                              gstPercent: String(effectiveGstPercentFromInventoryRow(it)),
-                              qty: '1',
-                            }
-                          : l
-                      )
-                    );
-                    setInvModalLineId(null);
-                    setErrorBanner(null);
-                  }}
-                >
-                  <span className={styles.invName}>{it.name}</span>
-                  <span className={styles.invSub}>
-                    {it.company} · {it.type} · SN {it.serialNumber} · ₹{it.mrp}
-                  </span>
-                </button>
-              ))}
-            </div>
-            {suggestedInvoiceTotal > 0 ? (
-              <p className={styles.meta}>Suggested payment (sum of lines): ₹{suggestedInvoiceTotal}</p>
+                    </div>
+                  );
+                })}
+                {suggestedInvoiceTotal > 0 ? (
+                  <p className={styles.suggestedTotal}>Suggested payment: ₹{suggestedInvoiceTotal}</p>
+                ) : null}
+              </div>
             ) : null}
-          </div>
+
+            <p className={styles.commerceStep}>Step 3 · Payment collected today</p>
+            <div className={styles.commercePanel}>
+              <div className={styles.amountHero}>
+                <label className={styles.amountLabel} htmlFor="amount">
+                  Amount collected ₹
+                </label>
+                <div className={styles.amountRow}>
+                  <span className={styles.amountRupee} aria-hidden>
+                    ₹
+                  </span>
+                  <input
+                    id="amount"
+                    className={styles.amountInput}
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={amount}
+                    onChange={(ev) => setAmount(ev.target.value)}
+                    disabled={visitFormBusy}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+
+              <p className={styles.pillGroupLabel}>Paid by</p>
+              <div className={styles.pillRow}>
+                {(['cash', 'upi', 'card'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    className={`${styles.pill} ${paymentMode === m ? styles.pillActive : ''}`}
+                    onClick={() => setPaymentMode(m)}
+                    disabled={visitFormBusy}
+                  >
+                    {m.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              {currentPdfTemplate ? (
+                <p className={styles.meta}>Admin PDF: {currentPdfTemplate.name}</p>
+              ) : (
+                <p className={styles.meta}>Admin PDF: default template</p>
+              )}
+            </div>
+          </>
         ) : null}
 
         <div className={styles.actionDock}>
-          {showVisitServicesForm ? (
+          {showServicesSection ? (
             <button
               type="button"
               className={styles.btnPrimarySolid}
@@ -1631,11 +1699,174 @@ export default function ReceiptActionScreen() {
               {savingVisitServices ? 'Saving…' : 'Save visit services'}
             </button>
           ) : null}
-          <button type="submit" className={styles.btnTealSolid} disabled={visitFormBusy}>
-            {submitting ? 'Sending…' : 'Send payment to admin'}
-          </button>
+          {showPaymentSection ? (
+            <button type="submit" className={styles.btnTealSolid} disabled={visitFormBusy}>
+              {submitting
+                ? 'Saving…'
+                : draftMode
+                  ? receiptType === 'invoice'
+                    ? 'Save sale for telecaller review'
+                    : receiptType === 'trial'
+                      ? 'Save trial for telecaller review'
+                      : 'Save booking for telecaller review'
+                  : receiptType === 'invoice'
+                    ? 'Send sale to admin'
+                    : receiptType === 'trial'
+                      ? 'Send trial to admin'
+                      : 'Send booking to admin'}
+            </button>
+          ) : null}
+          {fromCheckout ? (
+            <button type="button" className={styles.btnTealSolid} onClick={goBack}>
+              Back to checkout
+            </button>
+          ) : null}
         </div>
       </form>
+
+      {pickerMode === 'bookingCatalog' ? (
+        <ProductPickSheet
+          kind="catalog"
+          title="Select booking products"
+          subtitle="Tap to select multiple items, then Add"
+          items={catalogItems}
+          knownItems={bookingLines.map((l) => l.product)}
+          loading={catalogLoading}
+          selectedIds={bookingLines.map((l) => l.product.id)}
+          search={catalogSearch}
+          onSearch={setCatalogSearch}
+          onClose={() => setPickerMode(null)}
+          onConfirm={(selected) => {
+            setBookingLines((prev) => {
+              const keep = new Map(prev.map((l) => [l.product.id, l]));
+              return selected.map((p) => {
+                const existing = keep.get(p.id);
+                if (existing) return existing;
+                const m = String(p.mrp ?? 0);
+                return {
+                  id: newBookingLineId(),
+                  product: p,
+                  mrp: m,
+                  selling: m,
+                  qty: '1',
+                };
+              });
+            });
+            setPickerMode(null);
+          }}
+        />
+      ) : null}
+
+      {pickerMode === 'trialCatalog' ? (
+        <ProductPickSheet
+          kind="catalog"
+          title="Select trial models"
+          subtitle="Choose up to 2 models"
+          items={catalogItems}
+          knownItems={trialModels.map((m) => m.product)}
+          loading={catalogLoading}
+          selectedIds={trialModels.map((m) => m.product.id)}
+          maxSelect={2}
+          search={catalogSearch}
+          onSearch={setCatalogSearch}
+          onClose={() => setPickerMode(null)}
+          onConfirm={(selected) => {
+            setTrialModels((prev) => {
+              const keep = new Map(prev.map((m) => [m.product.id, m]));
+              return selected.slice(0, 2).map((p) => {
+                const existing = keep.get(p.id);
+                if (existing) return existing;
+                return {
+                  id: newTrialModelId(),
+                  product: p,
+                  mrp: String(p.mrp ?? 0),
+                  serial: '',
+                };
+              });
+            });
+            setPickerMode(null);
+          }}
+        />
+      ) : null}
+
+      {pickerMode === 'saleStock' ? (
+        <ProductPickSheet
+          kind="stock"
+          title="Available stock"
+          subtitle="Tap serials to multi-select, then Add"
+          items={inventoryItems}
+          loading={inventoryLoading}
+          selectedLineIds={[]}
+          disabledLineIds={saleLines.filter((l) => l.inv).map((l) => l.inv!.lineId)}
+          search={invSearch}
+          onSearch={setInvSearch}
+          onClose={() => setPickerMode(null)}
+          onConfirm={(selected) => {
+            setSaleLines((prev) => {
+              const existingSerials = new Set(
+                prev.filter((l) => l.inv).map((l) => l.inv!.serialNumber)
+              );
+              const next = prev.filter((l) => l.inv);
+              for (const it of selected) {
+                if (existingSerials.has(it.serialNumber)) continue;
+                existingSerials.add(it.serialNumber);
+                next.push({
+                  id: newSaleLineId(),
+                  inv: it,
+                  sellingPrice: String(it.mrp ?? 0),
+                  gstPercent: String(effectiveGstPercentFromInventoryRow(it)),
+                  qty: '1',
+                  warranty: '',
+                });
+              }
+              return next.length ? next : prev;
+            });
+            setPickerMode(null);
+          }}
+        />
+      ) : null}
+
+      {pickerMode === 'trialStock' && trialSerialPickId ? (
+        <ProductPickSheet
+          kind="stock"
+          title="Pick serial for trial model"
+          subtitle={
+            trialModels.find((m) => m.id === trialSerialPickId)?.product.name || 'Select one serial'
+          }
+          items={inventoryItems}
+          loading={inventoryLoading}
+          selectedLineIds={(() => {
+            const m = trialModels.find((x) => x.id === trialSerialPickId);
+            if (!m?.serial) return [];
+            const row = inventoryItems.find(
+              (it) => it.productId === m.product.id && it.serialNumber === m.serial
+            );
+            return row ? [row.lineId] : [];
+          })()}
+          filterProductIds={[
+            trialModels.find((m) => m.id === trialSerialPickId)?.product.id || '',
+          ].filter(Boolean)}
+          maxSelect={1}
+          search={invSearch}
+          onSearch={setInvSearch}
+          onClose={() => {
+            setPickerMode(null);
+            setTrialSerialPickId(null);
+          }}
+          onConfirm={(selected) => {
+            const row = selected[0];
+            if (row) {
+              setTrialModels((prev) =>
+                prev.map((m) =>
+                  m.id === trialSerialPickId ? { ...m, serial: row.serialNumber } : m
+                )
+              );
+            }
+            setPickerMode(null);
+            setTrialSerialPickId(null);
+          }}
+        />
+      ) : null}
 
       {selectModal ? (
         <div

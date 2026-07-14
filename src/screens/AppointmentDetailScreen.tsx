@@ -17,7 +17,8 @@ import type { Appointment } from '../types';
 import { theme } from '../theme';
 import { useAppointmentsContext } from '../context/AppointmentsContext';
 import { formatDateLong, formatTime, getStartForDisplay } from '../dateUtils';
-import { isPayableAppointmentForPayment } from '../utils/appointmentPayable';
+import { isEligibleForPaymentToAdmin, isEligibleForVisitServicesLogging } from '../utils/appointmentPayable';
+import { isAppointmentToday } from '../dateUtils';
 import styles from './AppointmentDetailScreen.module.css';
 
 function getStatusStyle(status?: string) {
@@ -149,7 +150,9 @@ export default function AppointmentDetailScreen() {
   const isScheduled = appointment.status === 'scheduled' || !appointment.status;
   const statusStyle = getStatusStyle(appointment.status);
   const startIso = getStartForDisplay(appointment.start);
-  const showVisitDetails = isPayableAppointmentForPayment(appointment);
+  const showServices = isEligibleForVisitServicesLogging(appointment);
+  const showPayment = isEligibleForPaymentToAdmin(appointment);
+  const isHomeVisit = appointment.type === 'home';
 
   const submitCompleted = async () => {
     if (!appointment.id) return;
@@ -180,6 +183,24 @@ export default function AppointmentDetailScreen() {
       setSaving(false);
       navigate('/app');
     }
+  };
+
+  const handleMarkCompletedClick = () => {
+    if (isHomeVisit) {
+      if (!isAppointmentToday(appointment.start)) {
+        window.alert('End-of-visit checkout is only available for today’s home visits.');
+        return;
+      }
+      if (!isOnline) {
+        window.alert(
+          'End-of-visit compliance requires an online connection (telecaller PIN + GPS). Connect to the internet and try again.'
+        );
+        return;
+      }
+      navigate(`/app/visit/${encodeURIComponent(appointment.id)}/compliance`);
+      return;
+    }
+    setShowModal(true);
   };
 
   const handleMarkCancelled = () => {
@@ -306,7 +327,18 @@ export default function AppointmentDetailScreen() {
 
         {isScheduled ? (
           <div className={styles.actions}>
-            {showVisitDetails ? (
+            {isHomeVisit && isAppointmentToday(appointment.start) ? (
+              <button
+                type="button"
+                className={styles.btnComplete}
+                disabled={saving}
+                onClick={handleMarkCompletedClick}
+              >
+                <IoCheckmarkCircle size={20} />
+                Start home visit checkout
+              </button>
+            ) : null}
+            {!isHomeVisit && showServices ? (
               <button
                 type="button"
                 className={styles.btnServices}
@@ -317,18 +349,41 @@ export default function AppointmentDetailScreen() {
                 Visit details
               </button>
             ) : null}
-            <button
-              type="button"
-              className={styles.btnComplete}
-              disabled={saving}
-              onClick={() => setShowModal(true)}
-            >
-              <IoCheckmarkCircle size={20} />
-              Mark Completed
-            </button>
+            {!isHomeVisit ? (
+              <button
+                type="button"
+                className={styles.btnComplete}
+                disabled={saving}
+                onClick={handleMarkCompletedClick}
+              >
+                <IoCheckmarkCircle size={20} />
+                Mark Completed
+              </button>
+            ) : null}
+            {isHomeVisit && !isAppointmentToday(appointment.start) ? (
+              <p className={styles.value} style={{ opacity: 0.75, marginBottom: '0.5rem' }}>
+                Home visit checkout opens on the appointment day.
+              </p>
+            ) : null}
             <button type="button" className={styles.btnCancel} disabled={saving} onClick={handleMarkCancelled}>
               <IoCloseCircleOutline size={20} />
               Mark Cancelled
+            </button>
+          </div>
+        ) : null}
+
+        {showPayment ? (
+          <div className={styles.actions}>
+            <button
+              type="button"
+              className={styles.btnServices}
+              disabled={saving}
+              onClick={() =>
+                navigate(`/app/receipt/${encodeURIComponent(appointment.id)}?mode=payment`)
+              }
+            >
+              <IoMedkitOutline size={20} />
+              Booking / trial / sale
             </button>
           </div>
         ) : null}

@@ -13,7 +13,7 @@ import { useAppointmentsContext } from '../context/AppointmentsContext';
 import type { Appointment } from '../types';
 import { theme } from '../theme';
 import { parseStartToDate, getStartForDisplay, isAppointmentToday, formatTime } from '../dateUtils';
-import { isPayableAppointmentForPayment } from '../utils/appointmentPayable';
+import { isEligibleForPaymentToAdmin, isEligibleForVisitServicesLogging } from '../utils/appointmentPayable';
 import styles from './AppointmentsScreen.module.css';
 
 type TabFilter = 'all' | 'today' | 'upcoming' | 'completed' | 'cancelled';
@@ -153,7 +153,16 @@ export default function AppointmentsScreen({ onLogout }: Props) {
     const isHomeVisit = item.type === 'home';
     const centerLabel = item.centerName || item.centerId || 'Center';
     const startIso = getStartForDisplay(item.start);
-    const showVisitDetails = activeTab === 'today' && isPayableAppointmentForPayment(item);
+    const stLower = (item.status || 'scheduled').toLowerCase();
+    const showCheckout =
+      activeTab === 'today' &&
+      item.type === 'home' &&
+      stLower === 'scheduled' &&
+      isAppointmentToday(item.start);
+    const showPayment =
+      activeTab === 'today' && item.type === 'home' && isEligibleForPaymentToAdmin(item);
+    const showCenterDetails =
+      activeTab === 'today' && item.type !== 'home' && isEligibleForVisitServicesLogging(item);
 
     return (
       <div key={item.id} className={styles.card}>
@@ -224,7 +233,27 @@ export default function AppointmentsScreen({ onLogout }: Props) {
               <IoNavigate size={18} />
             </button>
           ) : null}
-          {showVisitDetails ? (
+          {showCheckout ? (
+            <button
+              type="button"
+              className={styles.visitDetailsBtn}
+              onClick={() => navigate(`/app/visit/${encodeURIComponent(item.id)}/compliance`)}
+            >
+              Start checkout
+            </button>
+          ) : null}
+          {showPayment ? (
+            <button
+              type="button"
+              className={styles.visitDetailsBtn}
+              onClick={() =>
+                navigate(`/app/receipt/${encodeURIComponent(item.id)}?mode=payment`)
+              }
+            >
+              Booking / sale
+            </button>
+          ) : null}
+          {showCenterDetails ? (
             <button
               type="button"
               className={styles.visitDetailsBtn}

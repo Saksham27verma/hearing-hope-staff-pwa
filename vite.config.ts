@@ -69,11 +69,12 @@ export default defineConfig(({ mode }) => {
     ],
     server: {
       proxy: {
-        // Dev only: browser calls same-origin /api/mobile-login → Vite forwards to CRM (no CORS).
-        '/api/mobile-login': {
-          target: crmBase,
+        // Dev: same-origin /api/* → local CRM (prefer localhost so PIN/notify APIs work while coding).
+        // Override with VITE_CRM_PROXY_TARGET if needed.
+        '/api': {
+          target: (env.VITE_CRM_PROXY_TARGET || 'http://localhost:3000').replace(/\/$/, ''),
           changeOrigin: true,
-          secure: crmBase.startsWith('https:'),
+          secure: false,
         },
       },
     },

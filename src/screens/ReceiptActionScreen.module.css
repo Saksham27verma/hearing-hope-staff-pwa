@@ -844,18 +844,164 @@
 .pickBtn {
   width: 100%;
   text-align: left;
-  padding: 0.75rem 0.875rem;
-  font-size: 1rem;
-  border: 1px dashed var(--hh-divider);
-  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+  border: 1.5px dashed #0d9488;
+  border-radius: 12px;
   margin-bottom: 0.75rem;
-  background: var(--hh-card);
-  color: var(--hh-text);
+  background: rgba(13, 148, 136, 0.06);
+  color: #0f766e;
   cursor: pointer;
+}
+
+.pickBtn:active {
+  background: rgba(13, 148, 136, 0.12);
 }
 
 .addLineInner {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.commerceStep {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--hh-primary-dark, #3730a3);
+  margin: 1.35rem 0 0.65rem;
+}
+
+.commerceTypeGrid {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.commerceTypeCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  text-align: left;
+  width: 100%;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1.5px solid var(--hh-border);
+  background: var(--hh-card);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.commerceTypeCardOn {
+  border-color: var(--hh-teal, #0d9488);
+  background: rgba(13, 148, 136, 0.08);
+  box-shadow: 0 0 0 1px rgba(13, 148, 136, 0.25);
+}
+
+.commerceTypeTitle {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--hh-text);
+}
+
+.commerceTypeDesc {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--hh-muted);
+  line-height: 1.35;
+}
+
+.commercePanel {
+  background: var(--hh-card);
+  border: 1px solid var(--hh-border);
+  border-radius: 14px;
+  padding: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.commercePanelLead {
+  margin: 0 0 0.85rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--hh-text2, #475569);
+  line-height: 1.4;
+}
+
+.selectedProductCard {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--hh-divider);
+  margin-bottom: 0.85rem;
+}
+
+.selectedProductName {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--hh-text);
+}
+
+.selectedProductMeta {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--hh-muted);
+}
+
+.changeProductBtn {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--hh-primary, #4f46e5);
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.25rem 0.35rem;
+}
+
+.twoColFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.homeTrialBox {
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  border-radius: 12px;
+  background: rgba(234, 88, 12, 0.06);
+  border: 1px solid rgba(234, 88, 12, 0.2);
+}
+
+.infoNote {
+  margin: 0.75rem 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  background: rgba(13, 148, 136, 0.08);
+  color: var(--hh-text2, #475569);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.pickerBox {
+  margin: 0.5rem 0 0.85rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px dashed var(--hh-teal, #0d9488);
+  background: rgba(13, 148, 136, 0.04);
+}
+
+.suggestedTotal {
+  margin: 0.85rem 0 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--hh-teal, #0d9488);
 }

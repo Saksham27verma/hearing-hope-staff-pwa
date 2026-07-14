@@ -1,15 +1,27 @@
 import { auth } from '../firebase';
 
 function getCrmUrl(): string {
+  // Dev: Vite proxies /api → local CRM
+  if (import.meta.env.DEV) return '';
   return import.meta.env.VITE_CRM_URL || import.meta.env.CRM_BACKEND_URL || 'http://localhost:3000';
 }
 
 export type ReceiptType = 'trial' | 'booking' | 'invoice';
 export type PaymentMode = 'cash' | 'upi' | 'card';
 
-export type CollectPaymentBookingDetails = {
+export type CollectPaymentBookingLine = {
   catalogProductId: string;
+  hearingAidPrice: number;
+  bookingSellingPrice: number;
+  bookingQuantity: number;
+};
+
+export type CollectPaymentBookingDetails = {
   whichEar: 'left' | 'right' | 'both';
+  /** Preferred multi-item payload. */
+  items: CollectPaymentBookingLine[];
+  /** Legacy mirrors of first item (server still accepts). */
+  catalogProductId: string;
   hearingAidPrice: number;
   bookingSellingPrice: number;
   bookingQuantity: number;
@@ -84,6 +96,6 @@ export async function submitCollectPayment(body: {
   return {
     ok: true,
     emailSent: (data as { emailSent?: boolean }).emailSent,
-    htmlTemplateIdUsed: (data as { htmlTemplateIdUsed?: string | null }).htmlTemplateIdUsed ?? null,
+    htmlTemplateIdUsed: (data as { htmlTemplateIdUsed?: string | null }).htmlTemplateIdUsed,
   };
 }
