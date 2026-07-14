@@ -313,31 +313,34 @@ export default function EndOfVisitComplianceScreen() {
       return;
     }
     setBusy(true);
-    const result = await saveCheckoutDraft({
-      appointmentId: appointment.id,
-      patch: {
-        gps_location: gps,
-        compliance_form_data: form,
-        feedback: feedback.trim() || undefined,
-      },
-      readyForPin: true,
-    });
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.error || 'Could not notify telecaller');
-      return;
+    try {
+      const result = await saveCheckoutDraft({
+        appointmentId: appointment.id,
+        patch: {
+          gps_location: gps,
+          compliance_form_data: form,
+          feedback: feedback.trim() || undefined,
+        },
+        readyForPin: true,
+      });
+      if (!result.ok) {
+        setError(result.error || 'Could not notify telecaller');
+        return;
+      }
+      updateAppointmentOptimistic(appointment.id, {
+        complianceStatus: 'awaiting_telecaller_pin',
+        checkoutReadyForPin: true,
+        checkoutDraft: {
+          ...(appointment.checkoutDraft || {}),
+          gps_location: gps,
+          compliance_form_data: form,
+          feedback: feedback.trim() || undefined,
+        },
+      });
+      setStep('pin');
+    } finally {
+      setBusy(false);
     }
-    updateAppointmentOptimistic(appointment.id, {
-      complianceStatus: 'awaiting_telecaller_pin',
-      checkoutReadyForPin: true,
-      checkoutDraft: {
-        ...(appointment.checkoutDraft || {}),
-        gps_location: gps,
-        compliance_form_data: form,
-        feedback: feedback.trim() || undefined,
-      },
-    });
-    setStep('pin');
   };
 
   const submitPinAndFinish = async () => {

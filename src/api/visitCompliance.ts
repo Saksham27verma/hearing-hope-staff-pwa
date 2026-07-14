@@ -2,11 +2,7 @@ import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { ComplianceFormData, GpsLocation } from '../types';
 import type { CollectPaymentDetails, PaymentMode, ReceiptType } from './collectPayment';
-
-function getCrmUrl(): string {
-  if (import.meta.env.DEV) return '';
-  return import.meta.env.VITE_CRM_URL || import.meta.env.CRM_BACKEND_URL || 'http://localhost:3000';
-}
+import { crmFetch } from './crmBase';
 
 async function staffPost<T>(
   path: string,
@@ -15,19 +11,24 @@ async function staffPost<T>(
   const user = auth.currentUser;
   if (!user) return { ok: false, error: 'Not signed in' };
   const idToken = await user.getIdToken();
-  const res = await fetch(`${getCrmUrl()}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json().catch(() => ({}))) as T & { error?: string; ok?: boolean };
-  if (!res.ok || (data as { ok?: boolean }).ok === false) {
-    return { ok: false, error: (data as { error?: string }).error || 'Request failed' };
+  try {
+    const res = await crmFetch(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify(body),
+      timeoutMs: 25_000,
+    });
+    const data = (await res.json().catch(() => ({}))) as T & { error?: string; ok?: boolean };
+    if (!res.ok || (data as { ok?: boolean }).ok === false) {
+      return { ok: false, error: (data as { error?: string }).error || 'Request failed' };
+    }
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Request failed' };
   }
-  return { ok: true, data };
 }
 
 export type CheckoutDraftCommercePayload = {

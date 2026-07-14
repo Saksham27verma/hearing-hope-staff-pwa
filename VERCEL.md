@@ -37,8 +37,8 @@ git push -u origin main
 
    | Name | Required | Notes |
    |------|----------|--------|
-   | **`CRM_BACKEND_URL`** | **Yes (recommended)** | CRM origin only, e.g. `https://hearing-hope-crm.vercel.app` (no `/` at end). Edge function `api/mobile-login.ts` proxies to `{CRM_BACKEND_URL}/api/mobile-login`. |
-   | `VITE_CRM_URL` | Optional | Fallback for the proxy if `CRM_BACKEND_URL` is unset; can match `CRM_BACKEND_URL`. |
+   | **`CRM_BACKEND_URL`** | **Yes** | CRM origin only, e.g. `https://hearing-hope-crm.vercel.app` (no `/` at end). Used by serverless proxies: login + `/api/appointments/*` + `/api/staff/*`. |
+   | `VITE_CRM_URL` | Optional | Same value as above is fine. Browser calls use **same-origin** `/api/...` proxies (not this URL directly). |
    | `VITE_FIREBASE_API_KEY` | Yes | Firebase console → Web app |
    | `VITE_FIREBASE_AUTH_DOMAIN` | Yes | e.g. `project.firebaseapp.com` |
    | `VITE_FIREBASE_PROJECT_ID` | Yes | |

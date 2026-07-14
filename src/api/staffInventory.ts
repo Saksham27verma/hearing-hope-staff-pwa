@@ -1,8 +1,5 @@
 import { auth } from '../firebase';
-
-function getCrmUrl(): string {
-  return import.meta.env.VITE_CRM_URL || import.meta.env.CRM_BACKEND_URL || 'http://localhost:3000';
-}
+import { crmFetch } from './crmBase';
 
 export type StaffInventoryRow = {
   lineId: string;
@@ -18,18 +15,26 @@ export type StaffInventoryRow = {
   gstPercent?: number;
 };
 
-export async function fetchAvailableInventory(): Promise<{ ok: boolean; items?: StaffInventoryRow[]; error?: string }> {
+export async function fetchAvailableInventory(): Promise<{
+  ok: boolean;
+  items?: StaffInventoryRow[];
+  error?: string;
+}> {
   const user = auth.currentUser;
   if (!user) {
     return { ok: false, error: 'Not signed in' };
   }
   const idToken = await user.getIdToken();
-  const res = await fetch(`${getCrmUrl().replace(/\/$/, '')}/api/staff/available-inventory`, {
-    headers: { Authorization: `Bearer ${idToken}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    return { ok: false, error: (data as { error?: string }).error || 'Failed to load inventory' };
+  try {
+    const res = await crmFetch('/api/staff/available-inventory', {
+      headers: { Authorization: `Bearer ${idToken}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: (data as { error?: string }).error || 'Failed to load inventory' };
+    }
+    return { ok: true, items: (data as { items?: StaffInventoryRow[] }).items || [] };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Failed to load inventory' };
   }
-  return { ok: true, items: (data as { items?: StaffInventoryRow[] }).items || [] };
 }

@@ -1,10 +1,5 @@
 import { auth } from '../firebase';
-
-function getCrmUrl(): string {
-  // Dev: Vite proxies /api → local CRM
-  if (import.meta.env.DEV) return '';
-  return import.meta.env.VITE_CRM_URL || import.meta.env.CRM_BACKEND_URL || 'http://localhost:3000';
-}
+import { crmFetch } from './crmBase';
 
 export type ReceiptType = 'trial' | 'booking' | 'invoice';
 export type PaymentMode = 'cash' | 'upi' | 'card';
@@ -81,21 +76,26 @@ export async function submitCollectPayment(body: {
     return { ok: false, error: 'Not signed in' };
   }
   const idToken = await user.getIdToken();
-  const res = await fetch(`${getCrmUrl().replace(/\/$/, '')}/api/appointments/collect-payment`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    return { ok: false, error: (data as { error?: string }).error || 'Request failed' };
+  try {
+    const res = await crmFetch('/api/appointments/collect-payment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify(body),
+      timeoutMs: 60_000,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: (data as { error?: string }).error || 'Request failed' };
+    }
+    return {
+      ok: true,
+      emailSent: (data as { emailSent?: boolean }).emailSent,
+      htmlTemplateIdUsed: (data as { htmlTemplateIdUsed?: string | null }).htmlTemplateIdUsed,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Request failed' };
   }
-  return {
-    ok: true,
-    emailSent: (data as { emailSent?: boolean }).emailSent,
-    htmlTemplateIdUsed: (data as { htmlTemplateIdUsed?: string | null }).htmlTemplateIdUsed,
-  };
 }
